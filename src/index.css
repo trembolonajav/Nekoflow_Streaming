@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Nekoflow design system — paleta noturna premium.
+ * Onyx (base) · Marfim (texto) · Dourado queimado (acento)
+ * Colors em HSL para Tailwind v3.
+ */
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+
+    /* Onyx scale */
+    --onyx: 30 14% 9%;
+    --background: 30 14% 8%;
+    --foreground: 40 18% 93%;
+
+    --surface: 30 12% 12%;
+    --surface-elevated: 30 11% 16%;
+
+    --card: 30 12% 12%;
+    --card-foreground: 40 18% 93%;
+    --popover: 30 12% 13%;
+    --popover-foreground: 40 18% 93%;
+
+    /* Dourado queimado */
+    --gold: 40 65% 60%;
+    --gold-soft: 40 65% 60%;
+    --gold-glow: 40 65% 60%;
+
+    --primary: 40 65% 60%;
+    --primary-foreground: 30 14% 9%;
+
+    /* Marfim */
+    --ivory: 40 18% 93%;
+    --ivory-muted: 40 12% 68%;
+
+    --secondary: 30 11% 17%;
+    --secondary-foreground: 40 18% 93%;
+
+    --muted: 30 11% 16%;
+    --muted-foreground: 40 10% 62%;
+
+    --accent: 40 65% 60%;
+    --accent-foreground: 30 14% 9%;
+
+    --destructive: 0 65% 50%;
+    --destructive-foreground: 40 18% 95%;
+
+    --border: 40 65% 60%;
+    --border-subtle: 40 18% 93%;
+    --input: 40 18% 93%;
+    --ring: 40 65% 60%;
+
+    --sidebar-background: 30 14% 8%;
+    --sidebar-foreground: 40 18% 93%;
+    --sidebar-primary: 40 65% 60%;
+    --sidebar-primary-foreground: 30 14% 9%;
+    --sidebar-accent: 30 11% 16%;
+    --sidebar-accent-foreground: 40 18% 93%;
+    --sidebar-border: 40 65% 60%;
+    --sidebar-ring: 40 65% 60%;
+  }
+
+  .dark {
+    /* dark é o padrão — replicado para garantir consistência */
+    --background: 30 14% 8%;
+    --foreground: 40 18% 93%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    background-color: hsl(var(--background));
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: "Cormorant Garamond", "Playfair Display", Georgia, serif;
+    letter-spacing: -0.01em;
+  }
+
+  ::selection {
+    background-color: hsl(var(--gold) / 0.18);
+    color: hsl(var(--ivory));
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--onyx));
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--gold) / 0.18);
+    border-radius: 999px;
+    border: 2px solid hsl(var(--onyx));
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--gold) / 0.35);
+  }
+
+  :focus-visible {
+    outline: none;
+  }
+}

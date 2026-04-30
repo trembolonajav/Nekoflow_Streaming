@@ -1,0 +1,9 @@
+node_modules
+dist
+dist-ssr
+*.log
+backend/target
+backend/.mvn
+.idea
+.vscode
+.env
