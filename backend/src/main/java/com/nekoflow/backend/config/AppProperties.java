@@ -31,11 +31,9 @@ public record AppProperties(
 
     public record Integrations(
         AniList anilist,
-        SeekStreaming seekstreaming
+        SeekStreaming seekstreaming,
+        Google google
     ) {
-        public Integrations(AniList anilist) {
-            this(anilist, null);
-        }
     }
 
     public record AniList(
@@ -46,6 +44,11 @@ public record AppProperties(
     public record SeekStreaming(
         String endpoint,
         String apiToken
+    ) {
+    }
+
+    public record Google(
+        String clientId
     ) {
     }
 

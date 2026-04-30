@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    allowedHosts: ["nekoflow.com.br", "www.nekoflow.com.br"],
     hmr: {
       overlay: false,
     },

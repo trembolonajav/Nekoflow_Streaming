@@ -24,6 +24,7 @@ import {
   fetchHistory,
   fetchPreferences,
   fetchProfile,
+  fetchProfileComments,
   fetchWatchlist,
   removeFromWatchlist,
   updatePreferences,
@@ -88,10 +89,18 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
     queryKey: ["me-preferences"],
     queryFn: fetchPreferences,
   });
+  const commentsQuery = useQuery({
+    queryKey: ["me-comments"],
+    queryFn: fetchProfileComments,
+  });
 
   const savePreferencesMutation = useMutation({
     mutationFn: updatePreferences,
-    onSuccess: () => toast.success("Preferências salvas."),
+    onSuccess: (saved) => {
+      setLocalPreferences(saved);
+      toast.success("Preferências salvas.");
+      void queryClient.invalidateQueries({ queryKey: ["me-preferences"] });
+    },
     onError: (error: Error) => toast.error(error.message),
   });
 
@@ -131,6 +140,7 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
   const profile = profileQuery.data;
   const watchlist = watchlistQuery.data ?? [];
   const history = historyQuery.data ?? [];
+  const comments = commentsQuery.data ?? [];
 
   const stats = useMemo(() => {
     if (!profile) return [];
@@ -206,7 +216,7 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
         <div className="space-y-8">
           <Panel title="Continuar assistindo">
             {profile.continueWatching.length === 0 ? (
-              <EmptyState label="Você ainda não começou nenhum episódio." />
+              <EmptyState label="Você ainda não começou nenhum episódio." actionLabel="Explorar catálogo" to="/" />
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
                 {profile.continueWatching.map((item) => (
@@ -253,7 +263,7 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
             }
           >
             {history.length === 0 ? (
-              <EmptyState label="Seu histórico está vazio." />
+              <EmptyState label="Seu histórico está vazio." actionLabel="Assistir algo agora" to="/" />
             ) : (
               <div className="space-y-3">
                 {history.map((item) => (
@@ -300,7 +310,7 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
         <div className="space-y-8">
           <Panel title="Minha lista">
             {watchlist.length === 0 ? (
-              <EmptyState label="Sua lista ainda está vazia." />
+              <EmptyState label="Sua lista ainda está vazia." actionLabel="Encontrar animes" to="/" />
             ) : (
               <div className="space-y-3">
                 {watchlist.map((item) => (
@@ -322,6 +332,43 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
                     >
                       Remover
                     </Button>
+                  </article>
+                ))}
+              </div>
+            )}
+          </Panel>
+
+          <Panel title="Comentários">
+            {comments.length === 0 ? (
+              <EmptyState label="Você ainda não comentou em nenhum episódio." actionLabel="Ver lançamentos" to="/" />
+            ) : (
+              <div className="space-y-3">
+                {comments.map((comment) => (
+                  <article key={comment.id} className="rounded-xl border border-border-subtle bg-surface-elevated/30 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <Link to={`/anime/${comment.animeSlug}`} className="line-clamp-1 font-medium text-ivory hover:text-gold">
+                          {comment.animeTitle}
+                        </Link>
+                        <p className="mt-1 text-xs text-ivory-muted">
+                          Ep. {comment.episodeNumber} · {comment.episodeTitle}
+                        </p>
+                      </div>
+                      {comment.containsSpoiler ? (
+                        <span className="rounded-full border border-gold/25 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-gold">
+                          Spoiler
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-3 line-clamp-3 text-sm leading-relaxed text-ivory-muted">{comment.body}</p>
+                    <div className="mt-4 flex items-center justify-between gap-3">
+                      <span className="text-[11px] uppercase tracking-[0.14em] text-ivory-muted">
+                        {comment.createdAt ? new Date(comment.createdAt).toLocaleString("pt-BR") : "Agora"}
+                      </span>
+                      <Button asChild size="sm" variant="outline" className="border-border-subtle bg-transparent text-ivory hover:bg-surface">
+                        <Link to={`/watch/${comment.animeSlug}/${comment.episodeNumber}`}>Abrir</Link>
+                      </Button>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -353,9 +400,10 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
                 />
                 <Button
                   onClick={() => preferences && savePreferencesMutation.mutate(preferences)}
+                  disabled={savePreferencesMutation.isPending}
                   className="w-full bg-gold text-onyx hover:bg-gold/90"
                 >
-                  Salvar preferências
+                  {savePreferencesMutation.isPending ? "Salvando..." : "Salvar preferências"}
                 </Button>
               </div>
             ) : (
@@ -413,10 +461,15 @@ function PreferenceRow({
   );
 }
 
-function EmptyState({ label }: { label: string }) {
+function EmptyState({ label, actionLabel, to }: { label: string; actionLabel?: string; to?: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-border-subtle bg-surface/20 py-12 text-center text-sm text-ivory-muted">
-      {label}
+    <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border-subtle bg-surface/20 px-6 py-12 text-center text-sm text-ivory-muted">
+      <span>{label}</span>
+      {actionLabel && to ? (
+        <Button asChild size="sm" variant="outline" className="border-border-subtle bg-transparent text-ivory hover:bg-surface">
+          <Link to={to}>{actionLabel}</Link>
+        </Button>
+      ) : null}
     </div>
   );
 }

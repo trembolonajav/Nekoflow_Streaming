@@ -71,6 +71,16 @@ function PlayerInner({
   }, [data.episodeId]);
 
   useEffect(() => {
+    if (!isAuthenticated || !anime.id || !data.episodeId || !playbackUrl) return;
+    void updateProgress({
+      animeId: anime.id,
+      episodeId: data.episodeId,
+      progressSeconds: 1,
+      durationSeconds: totalSeconds,
+    }).catch(() => undefined);
+  }, [anime.id, data.episodeId, isAuthenticated, playbackUrl, totalSeconds]);
+
+  useEffect(() => {
     if (!isAuthenticated || !canTrackProgress) return;
     if (!anime.id || !data.episodeId) return;
     if (currentSeconds === 0) return;

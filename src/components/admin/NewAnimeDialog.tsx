@@ -135,7 +135,7 @@ export function NewAnimeDialog({ open, onOpenChange, editing, onSubmit }: NewAni
     if (!slug || slug === slugify(title)) setSlug(slugify(nextTitle));
 
     setType(mapAniListFormatToType(result.format).toUpperCase().replace("É", "E").replace(" ", "_"));
-    setStatus(mapAniListStatusToInternal(result.status).toUpperCase().replace(" ", "_").replace("Ã", "A"));
+    setStatus(mapAniListStatusToInternal(result.status).toUpperCase().replace(" ", "_"));
 
     const seasonLabel = formatAniListSeason(result.season, result.seasonYear);
     if (seasonLabel) setSeason(seasonLabel);

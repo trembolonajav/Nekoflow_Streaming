@@ -7,19 +7,27 @@ import { CarouselArrows, useHorizontalScroll } from "@/components/home/CarouselA
 import { Header } from "@/components/layout/Header";
 import { OrnamentDivider } from "@/components/layout/OrnamentDivider";
 import { Button } from "@/components/ui/button";
-import { fetchPublicHome } from "@/lib/backend-api";
+import { useAuth } from "@/hooks/use-auth";
+import { fetchProfile, fetchPublicHome, type ContinueWatchingDto } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
 
 const RECENT_PAGE_SIZE = 15;
 
 function Home() {
   const [activeHeroIndex, setActiveHeroIndex] = useState(0);
+  const { isAuthenticated, isReady } = useAuth();
   const homeQuery = useQuery({
     queryKey: ["public-home"],
     queryFn: fetchPublicHome,
   });
+  const profileQuery = useQuery({
+    queryKey: ["me-profile"],
+    queryFn: fetchProfile,
+    enabled: isReady && isAuthenticated,
+  });
 
   const data = homeQuery.data;
+  const sections = buildHomeSections(data?.sections ?? [], profileQuery.data?.continueWatching ?? [], isAuthenticated);
   const heroItems = data?.hero.items ?? [];
   const activeHero = heroItems[activeHeroIndex] ?? heroItems[0];
 
@@ -94,7 +102,7 @@ function Home() {
           </section>
         ) : null}
 
-        {(data?.sections ?? []).map((section, index) => (
+        {sections.map((section, index) => (
           <div key={section.code}>
             {index > 0 ? <OrnamentDivider width="md" className="my-2 opacity-60" /> : null}
             <HomeSection section={section} />
@@ -109,6 +117,40 @@ function Home() {
 
 type HomeSectionData = Awaited<ReturnType<typeof fetchPublicHome>>["sections"][number];
 type HomeSectionItem = HomeSectionData["items"][number];
+
+function buildHomeSections(
+  sections: HomeSectionData[],
+  continueWatching: ContinueWatchingDto[],
+  isAuthenticated: boolean,
+): HomeSectionData[] {
+  if (!isAuthenticated) {
+    return sections.filter((section) => section.code !== "continue");
+  }
+
+  const continueItems = continueWatching.map(toContinueHomeItem);
+
+  return sections
+    .map((section) => (
+      section.code === "continue"
+        ? { ...section, mode: "PERSONALIZED", items: continueItems }
+        : section
+    ))
+    .filter((section) => section.code !== "continue" || section.items.length > 0);
+}
+
+function toContinueHomeItem(item: ContinueWatchingDto): HomeSectionItem {
+  return {
+    id: item.episodeId,
+    animeId: item.animeId,
+    episodeId: item.episodeId,
+    title: item.animeTitle,
+    subtitle: `Ep. ${item.episodeNumber} - ${item.episodeTitle}`,
+    coverUrl: item.coverUrl ?? item.thumbnailUrl,
+    bannerUrl: item.thumbnailUrl,
+    previewUrl: null,
+    slug: item.animeSlug,
+  };
+}
 
 function HomeSection({ section }: { section: HomeSectionData }) {
   const [page, setPage] = useState(1);
@@ -136,9 +178,11 @@ function HomeSection({ section }: { section: HomeSectionData }) {
         <div>
           <h2 className="font-serif text-3xl text-ivory">{section.title}</h2>
           <p className="mt-1 text-sm text-ivory-muted">
-            {section.mode === "AUTOMATIC"
-              ? "Atualizado automaticamente a partir do catálogo."
-              : "Curadoria editorial conectada ao painel admin."}
+            {section.code === "continue"
+              ? getContinueDescription(section)
+              : section.mode === "AUTOMATIC"
+                ? "Atualizado automaticamente a partir do catálogo."
+                : "Curadoria editorial conectada ao painel admin."}
           </p>
         </div>
         {isSeason && section.items.length > 5 ? (
@@ -207,7 +251,7 @@ function HomeCard({
   return (
     <article className={cn("group overflow-hidden rounded-xl border border-border-subtle bg-surface transition-all duration-300 hover:border-gold/40", className)}>
       <Link
-        to={item.episodeId ? `/watch/${item.slug}/${item.subtitle?.replace(/\D/g, "") || "1"}` : `/anime/${item.slug}`}
+        to={item.episodeId ? `/watch/${item.slug}/${getEpisodeNumberFromSubtitle(item.subtitle)}` : `/anime/${item.slug}`}
         className="block"
       >
         <HomeCardMedia item={item} sectionCode={sectionCode} />
@@ -222,6 +266,20 @@ function HomeCard({
   );
 }
 
+function getContinueDescription(section: HomeSectionData) {
+  if (section.mode === "PERSONALIZED") {
+    return "Baseado nos episódios que você começou.";
+  }
+  return section.items.length > 0
+    ? "Sugestões editoriais para retomar uma sessão."
+    : "Entre na sua conta para acompanhar seu progresso.";
+}
+
+function getEpisodeNumberFromSubtitle(subtitle: string | null) {
+  const match = subtitle?.match(/Ep\.\s*(\d+)/i);
+  return match?.[1] ?? "1";
+}
+
 function HomeCardMedia({
   item,
   sectionCode,
@@ -231,7 +289,8 @@ function HomeCardMedia({
 }) {
   const [useFallback, setUseFallback] = useState(false);
   const [hidePreview, setHidePreview] = useState(false);
-  const isEpisode = Boolean(item.episodeId);
+  const isContinue = sectionCode === "continue";
+  const isEpisode = Boolean(item.episodeId) && !isContinue;
   const showPlayHover = sectionCode === "recent" || sectionCode === "continue";
   const enablePreviewHover = Boolean(item.previewUrl) && !showPlayHover;
   const primaryImage = isEpisode

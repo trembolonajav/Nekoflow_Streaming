@@ -20,5 +20,8 @@ public interface CommentRepository extends JpaRepository<CommentEntity, UUID> {
     @EntityGraph(attributePaths = {"user", "episode", "anime", "parent"})
     Optional<CommentEntity> findByIdAndStatus(UUID id, String status);
 
+    @EntityGraph(attributePaths = {"anime", "episode"})
+    List<CommentEntity> findTop10ByUserIdAndStatusOrderByCreatedAtDesc(UUID userId, String status);
+
     long countByUserIdAndStatus(UUID userId, String status);
 }

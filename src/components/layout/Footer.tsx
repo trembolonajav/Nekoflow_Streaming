@@ -27,24 +27,24 @@ export function Footer() {
             title="Navegação"
             items={[
               { label: "Início", to: "/" },
-              { label: "Calendário", to: "/" },
-              { label: "Explorar", to: "/" },
+              { label: "Calendário", to: "/calendario" },
+              { label: "Entrar", to: "/entrar" },
             ]}
           />
           <FooterColumn
             title="Conta"
             items={[
-              { label: "Minha lista", to: "/" },
-              { label: "Configurações", to: "/" },
-              { label: "Notificações", to: "/" },
+              { label: "Perfil", to: "/perfil" },
+              { label: "Minha lista", to: "/perfil" },
+              { label: "Painel admin", to: "/admin" },
             ]}
           />
           <FooterColumn
             title="Sobre"
             items={[
-              { label: "Curadoria", to: "/" },
-              { label: "Contato", to: "/" },
-              { label: "Termos", to: "/" },
+              { label: "Termos de Uso", to: "/termos-de-uso" },
+              { label: "Política de Privacidade", to: "/politica-de-privacidade" },
+              { label: "Contato", to: "/politica-de-privacidade" },
             ]}
           />
         </div>

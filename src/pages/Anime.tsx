@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
 
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
@@ -10,12 +11,21 @@ import { AnimeMetaGrid } from "@/components/anime/AnimeMetaGrid";
 import { AnimeSynopsis } from "@/components/anime/AnimeSynopsis";
 import { AnimeEpisodes } from "@/components/anime/AnimeEpisodes";
 import { Button } from "@/components/ui/button";
-import { fetchAnimeDetail, type AnimeDetailDto } from "@/lib/backend-api";
+import { useAuth } from "@/hooks/use-auth";
+import {
+  addToWatchlist,
+  fetchAnimeDetail,
+  fetchProfile,
+  fetchWatchlist,
+  removeFromWatchlist,
+  type AnimeDetailDto,
+} from "@/lib/backend-api";
 import type { AnimeDetailView } from "@/lib/anime-ui";
 
 function toAnimeDetail(dto: AnimeDetailDto): AnimeDetailView {
   const durationMin = dto.episodes[0]?.durationSeconds ? Math.round(dto.episodes[0].durationSeconds / 60) : 24;
   return {
+    id: dto.id,
     slug: dto.slug,
     title: dto.titleDisplay,
     altTitle: dto.titleRomaji ?? dto.titleNative ?? dto.titleEnglish ?? undefined,
@@ -58,10 +68,42 @@ function toAnimeDetail(dto: AnimeDetailDto): AnimeDetailView {
 
 function AnimeDetailPage() {
   const { slug = "" } = useParams() as { slug?: string };
+  const { isAuthenticated } = useAuth();
+  const queryClient = useQueryClient();
   const animeQuery = useQuery({
     queryKey: ["anime-detail", slug],
     queryFn: () => fetchAnimeDetail(slug),
     enabled: Boolean(slug),
+  });
+  const profileQuery = useQuery({
+    queryKey: ["me-profile"],
+    queryFn: fetchProfile,
+    enabled: isAuthenticated,
+  });
+  const watchlistQuery = useQuery({
+    queryKey: ["me-watchlist"],
+    queryFn: fetchWatchlist,
+    enabled: isAuthenticated,
+  });
+
+  const addWatchlistMutation = useMutation({
+    mutationFn: addToWatchlist,
+    onSuccess: () => {
+      toast.success("Adicionado à sua lista.");
+      void queryClient.invalidateQueries({ queryKey: ["me-watchlist"] });
+      void queryClient.invalidateQueries({ queryKey: ["me-profile"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const removeWatchlistMutation = useMutation({
+    mutationFn: removeFromWatchlist,
+    onSuccess: () => {
+      toast.success("Removido da sua lista.");
+      void queryClient.invalidateQueries({ queryKey: ["me-watchlist"] });
+      void queryClient.invalidateQueries({ queryKey: ["me-profile"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
   });
 
   if (animeQuery.isLoading) {
@@ -77,17 +119,46 @@ function AnimeDetailPage() {
 
   if (!animeQuery.data) return <AnimeNotFound slug={slug} />;
   const anime = toAnimeDetail(animeQuery.data);
+  const continueProgress = profileQuery.data?.continueWatching.find((item) => item.animeSlug === anime.slug);
+  const progress = continueProgress
+    ? {
+        episodeNumber: continueProgress.episodeNumber,
+        progressPercent: continueProgress.progressPercent,
+        remainingMinutes: continueProgress.remainingMinutes,
+      }
+    : null;
+  const isInWatchlist = Boolean(watchlistQuery.data?.some((item) => item.animeId === anime.id));
+  const watchlistBusy = addWatchlistMutation.isPending || removeWatchlistMutation.isPending;
+
+  const handleToggleWatchlist = () => {
+    if (!isAuthenticated) {
+      toast.info("Entre na sua conta para usar a Minha lista.");
+      return;
+    }
+    if (isInWatchlist) {
+      removeWatchlistMutation.mutate(anime.id);
+    } else {
+      addWatchlistMutation.mutate(anime.id);
+    }
+  };
 
   return (
     <div className="relative flex min-h-screen flex-col bg-background">
       <Header />
 
       <main className="relative flex-1">
-        <AnimeHero anime={anime} progress={null} />
+        <AnimeHero
+          anime={anime}
+          progress={progress}
+          isAuthenticated={isAuthenticated}
+          isInWatchlist={isInWatchlist}
+          watchlistBusy={watchlistBusy}
+          onToggleWatchlist={handleToggleWatchlist}
+        />
         <AnimeMetaGrid anime={anime} />
         <AnimeSynopsis anime={anime} />
         <OrnamentDivider width="md" className="my-2 opacity-60" />
-        <AnimeEpisodes anime={anime} progress={null} />
+        <AnimeEpisodes anime={anime} progress={progress} />
       </main>
 
       <Footer />

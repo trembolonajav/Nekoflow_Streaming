@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.nekoflow.backend.api.v1.common.dto.ApiMessageResponse;
 import com.nekoflow.backend.api.v1.me.dto.HistoryItemResponse;
+import com.nekoflow.backend.api.v1.me.dto.ProfileCommentResponse;
 import com.nekoflow.backend.api.v1.me.dto.ProfileResponse;
 import com.nekoflow.backend.api.v1.me.dto.UpdatePreferencesRequest;
 import com.nekoflow.backend.api.v1.me.dto.UpsertProgressRequest;
@@ -58,6 +59,11 @@ public class MeController {
     @GetMapping("/history")
     public ResponseEntity<List<HistoryItemResponse>> history() {
         return ResponseEntity.ok(meService.getHistory());
+    }
+
+    @GetMapping("/comments")
+    public ResponseEntity<List<ProfileCommentResponse>> comments() {
+        return ResponseEntity.ok(meService.getComments());
     }
 
     @DeleteMapping("/history/{historyId}")

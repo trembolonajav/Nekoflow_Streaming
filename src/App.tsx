@@ -12,6 +12,8 @@ import Perfil from "./pages/Perfil";
 import Anime from "./pages/Anime";
 import Watch from "./pages/Watch";
 import NotFound from "./pages/NotFound";
+import TermosDeUso from "./pages/TermosDeUso";
+import PoliticaPrivacidade from "./pages/PoliticaPrivacidade";
 
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/AdminIndex";
@@ -38,6 +40,8 @@ const App = () => (
             <Route path="/perfil" element={<Perfil />} />
             <Route path="/anime/:slug" element={<Anime />} />
             <Route path="/watch/:slug/:episodeNumber" element={<Watch />} />
+            <Route path="/termos-de-uso" element={<TermosDeUso />} />
+            <Route path="/politica-de-privacidade" element={<PoliticaPrivacidade />} />
 
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<AdminDashboard />} />

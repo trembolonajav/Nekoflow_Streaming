@@ -13,5 +13,8 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
     @EntityGraph(attributePaths = {"roles"})
     Optional<UserEntity> findByEmailIgnoreCase(String email);
 
+    @EntityGraph(attributePaths = {"roles"})
+    Optional<UserEntity> findByGoogleSub(String googleSub);
+
     boolean existsByEmailIgnoreCase(String email);
 }

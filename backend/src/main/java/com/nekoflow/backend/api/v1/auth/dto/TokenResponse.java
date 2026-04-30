@@ -10,6 +10,7 @@ public record TokenResponse(
     String userId,
     String name,
     String email,
-    List<String> roles
+    List<String> roles,
+    String provider
 ) {
 }

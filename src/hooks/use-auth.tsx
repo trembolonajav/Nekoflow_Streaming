@@ -10,6 +10,33 @@ import {
 
 const STORAGE_KEY = "nekoflow:auth";
 const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080"}/api/v1`;
+const GOOGLE_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "").trim();
+
+type GoogleProviderApi = {
+  accounts: {
+    id: {
+      initialize: (options: {
+        client_id: string;
+        callback: (response: { credential?: string }) => void;
+        auto_select?: boolean;
+        cancel_on_tap_outside?: boolean;
+      }) => void;
+      prompt: (callback?: (notification: {
+        isNotDisplayed?: () => boolean;
+        isSkippedMoment?: () => boolean;
+        isDismissedMoment?: () => boolean;
+      }) => void) => void;
+    };
+  };
+};
+
+declare global {
+  interface Window {
+    google?: GoogleProviderApi;
+  }
+}
+
+let googleScriptPromise: Promise<void> | null = null;
 
 export type AuthRole = "user" | "admin";
 
@@ -37,6 +64,7 @@ interface TokenResponse {
   name: string;
   email: string;
   roles: string[];
+  provider: string;
 }
 
 interface AuthMeResponse {
@@ -44,6 +72,7 @@ interface AuthMeResponse {
   name: string;
   email: string;
   roles: string[];
+  provider: string;
 }
 
 interface AuthState {
@@ -51,8 +80,8 @@ interface AuthState {
   isAuthenticated: boolean;
   isReady: boolean;
   signIn: (input: { email: string; password: string }) => Promise<AuthUser>;
-  signUp: (input: { name: string; email: string; password: string }) => Promise<AuthUser>;
-  signInWithGoogle: () => Promise<AuthUser>;
+  signUp: (input: { name: string; email: string; password: string; confirmPassword: string; acceptTerms: boolean }) => Promise<AuthUser>;
+  signInWithGoogle: (input?: { acceptTerms?: boolean }) => Promise<AuthUser>;
   signOut: () => void;
 }
 
@@ -68,13 +97,17 @@ function toRole(roles: string[]): AuthRole {
     : "user";
 }
 
-function toAuthUser(input: { id: string; name: string; email: string; roles: string[] }): AuthUser {
+function toAuthProvider(provider: string): AuthUser["provider"] {
+  return provider.includes("GOOGLE") ? "google" : "email";
+}
+
+function toAuthUser(input: { id: string; name: string; email: string; roles: string[]; provider: string }): AuthUser {
   return {
     id: input.id,
     name: input.name,
     email: input.email,
     initial: initialOf(input.name),
-    provider: "email",
+    provider: toAuthProvider(input.provider),
     role: toRole(input.roles),
   };
 }
@@ -124,6 +157,75 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function loadGoogleScript() {
+  if (typeof window === "undefined") return;
+  if (window.google?.accounts?.id) return;
+
+  if (!googleScriptPromise) {
+    googleScriptPromise = new Promise<void>((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://accounts.google.com/gsi/client";
+      script.async = true;
+      script.defer = true;
+      script.dataset.googleIdentity = "true";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("Não foi possível carregar o login do Google."));
+      document.head.appendChild(script);
+    });
+  }
+
+  return googleScriptPromise;
+}
+
+async function requestGoogleCredential(): Promise<string> {
+  if (!GOOGLE_CLIENT_ID) {
+    throw new Error("Login com Google ainda não foi configurado.");
+  }
+
+  await loadGoogleScript();
+
+  return new Promise<string>((resolve, reject) => {
+    if (!window.google?.accounts?.id) {
+      reject(new Error("Google Identity Services não está disponível neste navegador."));
+      return;
+    }
+
+    let settled = false;
+    const timeoutId = window.setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error("Não foi possível concluir o login com Google."));
+      }
+    }, 15000);
+
+    const finish = (resolver: typeof resolve | typeof reject, value: string | Error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      resolver(value as never);
+    };
+
+    window.google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      auto_select: false,
+      cancel_on_tap_outside: true,
+      callback: (response) => {
+        if (!response.credential) {
+          finish(reject, new Error("O Google não retornou uma credencial válida."));
+          return;
+        }
+        finish(resolve, response.credential);
+      },
+    });
+
+    window.google.accounts.id.prompt((notification) => {
+      if (notification.isNotDisplayed?.() || notification.isSkippedMoment?.() || notification.isDismissedMoment?.()) {
+        finish(reject, new Error("O prompt do Google não pôde ser exibido. Tente novamente ou use login por e-mail."));
+      }
+    });
+  });
+}
+
 export function getStoredAccessToken(): string | null {
   return loadSession()?.accessToken ?? null;
 }
@@ -150,6 +252,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: payload.name,
         email: payload.email,
         roles: payload.roles,
+        provider: payload.provider,
       }),
     };
     persistSession(next);
@@ -216,6 +319,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: payload.name,
         email: payload.email,
         roles: payload.roles,
+        provider: payload.provider,
       }),
     };
     persistSession(next);
@@ -223,10 +327,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [persistSession]);
 
   const signUp = useCallback(
-    async ({ name, email, password }: { name: string; email: string; password: string }) => {
+    async ({ name, email, password, confirmPassword, acceptTerms }: { name: string; email: string; password: string; confirmPassword: string; acceptTerms: boolean }) => {
       const payload = await apiRequest<TokenResponse>("/auth/register", {
         method: "POST",
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email, password, confirmPassword, acceptTerms }),
       });
       const next: StoredSession = {
         accessToken: payload.accessToken,
@@ -236,6 +340,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           name: payload.name,
           email: payload.email,
           roles: payload.roles,
+          provider: payload.provider,
         }),
       };
       persistSession(next);
@@ -244,9 +349,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [persistSession],
   );
 
-  const signInWithGoogle = useCallback(async () => {
-    throw new Error("Login com Google ainda não está disponível.");
-  }, []);
+  const signInWithGoogle = useCallback(async ({ acceptTerms = false }: { acceptTerms?: boolean } = {}) => {
+    const idToken = await requestGoogleCredential();
+    const payload = await apiRequest<TokenResponse>("/auth/google", {
+      method: "POST",
+      body: JSON.stringify({ idToken, acceptTerms }),
+    });
+    const next: StoredSession = {
+      accessToken: payload.accessToken,
+      refreshToken: payload.refreshToken,
+      user: toAuthUser({
+        id: payload.userId,
+        name: payload.name,
+        email: payload.email,
+        roles: payload.roles,
+        provider: payload.provider,
+      }),
+    };
+    persistSession(next);
+    return next.user;
+  }, [persistSession]);
 
   const signOut = useCallback(() => {
     const current = loadSession();

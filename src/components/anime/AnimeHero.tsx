@@ -7,9 +7,20 @@ import type { AnimeDetailView, AnimeWatchProgress } from "@/lib/anime-ui";
 interface AnimeHeroProps {
   anime: AnimeDetailView;
   progress: AnimeWatchProgress | null;
+  isAuthenticated?: boolean;
+  isInWatchlist?: boolean;
+  watchlistBusy?: boolean;
+  onToggleWatchlist?: () => void;
 }
 
-export function AnimeHero({ anime, progress }: AnimeHeroProps) {
+export function AnimeHero({
+  anime,
+  progress,
+  isAuthenticated = false,
+  isInWatchlist = false,
+  watchlistBusy = false,
+  onToggleWatchlist,
+}: AnimeHeroProps) {
   return (
     <section
       aria-label={`Detalhes de ${anime.title}`}
@@ -105,10 +116,12 @@ export function AnimeHero({ anime, progress }: AnimeHeroProps) {
             <Button
               size="lg"
               variant="ghost"
+              onClick={onToggleWatchlist}
+              disabled={watchlistBusy}
               className="h-12 rounded-full border border-ivory/20 px-6 text-ivory hover:border-ivory/40 hover:bg-ivory/5 hover:text-ivory"
             >
               <Plus className="mr-2 h-4 w-4" />
-              Minha lista
+              {isAuthenticated && isInWatchlist ? "Na minha lista" : "Minha lista"}
             </Button>
             <button
               type="button"

@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Lock, Mail, Sparkles, User } from "lucide-react";
 import { toast } from "sonner";
 
@@ -14,15 +14,15 @@ import { OrnamentDivider } from "@/components/layout/OrnamentDivider";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { useAuth } from "@/hooks/use-auth";
+import { LEGAL_LAST_UPDATED, LEGAL_PRIVACY_VERSION, LEGAL_TERMS_VERSION } from "@/lib/legal";
 import { cn } from "@/lib/utils";
-
 
 function EntrarPage() {
   const { isAuthenticated, isReady } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState<"signin" | "signup">("signin");
+  const [signupNotice, setSignupNotice] = useState<string | null>(null);
 
-  // Se já está logado, manda pra home
   useEffect(() => {
     if (isReady && isAuthenticated) {
       navigate("/");
@@ -33,41 +33,30 @@ function EntrarPage() {
     <div className="flex min-h-screen flex-col bg-onyx">
       <Header />
 
-      <main className="relative flex flex-1 w-full">
-        {/* Coluna visual (esquerda) */}
-        <aside
-          className="relative hidden overflow-hidden lg:block lg:w-[58%] xl:w-[60%]"
-          aria-hidden
-        >
-          <img
-            src={authBg}
-            alt=""
-            className="absolute inset-0 h-full w-full object-cover object-left"
-          />
-          {/* Gradient para fusão com a coluna do form */}
+      <main className="relative flex min-h-0 flex-1">
+        <aside className="relative hidden overflow-hidden lg:block lg:w-[58%] xl:w-[60%]" aria-hidden>
+          <img src={authBg} alt="" className="absolute inset-0 h-full w-full object-cover object-left" />
           <div className="absolute inset-0 bg-gradient-to-r from-onyx/0 via-onyx/20 to-onyx" />
         </aside>
 
-        {/* Coluna do formulário (direita) */}
         <section className="relative flex w-full items-center justify-center px-4 py-10 sm:px-8 lg:w-[42%] lg:justify-start lg:px-10 xl:w-[40%] xl:px-14">
-          {/* Background mobile (a imagem aparece atrás esmaecida) */}
-          <img
-            src={authBg}
-            alt=""
-            aria-hidden
-            className="absolute inset-0 h-full w-full object-cover opacity-25 lg:hidden"
-          />
+          <img src={authBg} alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover opacity-25 lg:hidden" />
           <div className="absolute inset-0 bg-gradient-to-b from-onyx via-onyx/95 to-onyx lg:hidden" />
 
           <div className="relative w-full max-w-md">
             <div className="rounded-2xl border border-gold/15 bg-surface/80 p-7 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.6)] backdrop-blur-xl sm:p-9">
-              {/* Logo + título */}
               <div className="flex flex-col items-center text-center">
                 <img src={logoUrl} alt="Nekoflow" className="h-16 w-auto" draggable={false} />
                 <OrnamentDivider width="sm" className="my-4 opacity-70" />
               </div>
 
-              <Tabs value={tab} onValueChange={(v) => setTab(v as "signin" | "signup")}>
+              <Tabs
+                value={tab}
+                onValueChange={(v) => {
+                  setTab(v as "signin" | "signup");
+                  setSignupNotice(null);
+                }}
+              >
                 <TabsList className="mb-6 grid h-auto w-full grid-cols-2 rounded-lg border border-border-subtle bg-onyx/60 p-1">
                   <TabsTrigger
                     value="signin"
@@ -84,16 +73,29 @@ function EntrarPage() {
                 </TabsList>
 
                 <TabsContent value="signin" className="mt-0">
-                  <SignInForm />
+                  <SignInForm
+                    onGoogleNeedsTerms={() => {
+                      setSignupNotice("Para criar ou vincular sua conta com Google, confirme o aceite dos Termos de Uso e da Política de Privacidade.");
+                      setTab("signup");
+                    }}
+                  />
                 </TabsContent>
                 <TabsContent value="signup" className="mt-0">
-                  <SignUpForm onSuccess={() => setTab("signin")} />
+                  <SignUpForm notice={signupNotice} onSuccess={() => setTab("signin")} />
                 </TabsContent>
               </Tabs>
             </div>
 
-            <p className="mt-6 text-center font-mono text-[10px] uppercase tracking-[0.22em] text-ivory-muted/60">
-              Ao entrar você concorda com os termos da Nekoflow
+            <p className="mt-6 text-center text-[11px] leading-relaxed text-ivory-muted/70">
+              O acesso à Nekoflow está sujeito aos{" "}
+              <Link to="/termos-de-uso" className="text-gold underline underline-offset-4">
+                Termos de Uso
+              </Link>{" "}
+              e à{" "}
+              <Link to="/politica-de-privacidade" className="text-gold underline underline-offset-4">
+                Política de Privacidade
+              </Link>
+              .
             </p>
           </div>
         </section>
@@ -104,11 +106,7 @@ function EntrarPage() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Entrar                                                                    */
-/* -------------------------------------------------------------------------- */
-
-function SignInForm() {
+function SignInForm({ onGoogleNeedsTerms }: { onGoogleNeedsTerms: () => void }) {
   const { signIn, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -141,6 +139,11 @@ function SignInForm() {
       toast.success(`Conectado como ${user.name}.`);
       navigate("/");
     } catch (err) {
+      if (isGoogleTermsRequiredError(err)) {
+        onGoogleNeedsTerms();
+        toast.info("Confirme o aceite na aba Criar conta para continuar com Google.");
+        return;
+      }
       toast.error(err instanceof Error ? err.message : "Não foi possível conectar com Google.");
     } finally {
       setGoogleLoading(false);
@@ -151,13 +154,20 @@ function SignInForm() {
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       <header className="text-center">
         <h1 className="font-serif text-3xl font-medium text-ivory">Entrar</h1>
-        <p className="mt-1 text-sm text-ivory-muted">
-          Acesse sua conta para continuar assistindo.
-        </p>
+        <p className="mt-1 text-sm text-ivory-muted">Acesse sua conta para continuar assistindo.</p>
       </header>
 
-      <FieldEmail value={email} onChange={setEmail} />
+      <FieldText
+        label="E-mail"
+        icon={<Mail className="size-4" />}
+        placeholder="seu@email.com"
+        value={email}
+        onChange={setEmail}
+        autoComplete="email"
+        type="email"
+      />
       <FieldPassword
+        label="Senha"
         value={password}
         onChange={setPassword}
         visible={showPassword}
@@ -175,7 +185,7 @@ function SignInForm() {
         </label>
         <button
           type="button"
-          onClick={() => toast.info("Em breve: recuperação de senha.")}
+          onClick={() => toast.info("Recuperação de senha ainda não foi implementada.")}
           className="text-sm text-gold/80 transition-colors hover:text-gold"
         >
           Esqueci minha senha
@@ -193,17 +203,15 @@ function SignInForm() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Criar conta                                                               */
-/* -------------------------------------------------------------------------- */
-
-function SignUpForm({ onSuccess }: { onSuccess: () => void }) {
+function SignUpForm({ notice, onSuccess }: { notice?: string | null; onSuccess: () => void }) {
   const { signUp, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [accept, setAccept] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -212,16 +220,31 @@ function SignUpForm({ onSuccess }: { onSuccess: () => void }) {
     e.preventDefault();
     if (loading) return;
     if (!accept) {
-      toast.error("Aceite os termos para criar sua conta.");
+      toast.error("Para continuar, você precisa aceitar os Termos de Uso e a Política de Privacidade.");
       return;
     }
-    if (password.length < 6) {
-      toast.error("A senha precisa ter pelo menos 6 caracteres.");
+    if (!/\S+@\S+\.\S+/.test(email)) {
+      toast.error("Informe um e-mail válido.");
       return;
     }
+    if (password !== confirmPassword) {
+      toast.error("A confirmação de senha não confere.");
+      return;
+    }
+    if (!isStrongEnough(password)) {
+      toast.error("Use no mínimo 8 caracteres, com pelo menos uma letra e um número.");
+      return;
+    }
+
     setLoading(true);
     try {
-      const user = await signUp({ name, email, password });
+      const user = await signUp({
+        name,
+        email,
+        password,
+        confirmPassword,
+        acceptTerms: accept,
+      });
       toast.success(`Conta criada. Bem-vindo(a), ${user.name}!`);
       onSuccess();
       navigate("/");
@@ -234,9 +257,13 @@ function SignUpForm({ onSuccess }: { onSuccess: () => void }) {
 
   const handleGoogle = async () => {
     if (googleLoading) return;
+    if (!accept) {
+      toast.error("Para o primeiro acesso com Google, aceite os Termos de Uso e a Política de Privacidade.");
+      return;
+    }
     setGoogleLoading(true);
     try {
-      const user = await signInWithGoogle();
+      const user = await signInWithGoogle({ acceptTerms: accept });
       toast.success(`Conta vinculada ao Google de ${user.name}.`);
       navigate("/");
     } catch (err) {
@@ -250,27 +277,48 @@ function SignUpForm({ onSuccess }: { onSuccess: () => void }) {
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       <header className="text-center">
         <h1 className="font-serif text-3xl font-medium text-ivory">Criar conta</h1>
-        <p className="mt-1 text-sm text-ivory-muted">
-          Comece sua jornada na curadoria Nekoflow.
-        </p>
+        <p className="mt-1 text-sm text-ivory-muted">Comece sua jornada na curadoria Nekoflow.</p>
       </header>
 
+      {notice ? (
+        <div className="rounded-lg border border-gold/25 bg-gold/10 px-4 py-3 text-sm leading-relaxed text-ivory">
+          {notice}
+        </div>
+      ) : null}
+
       <FieldText
-        label="Nome"
+        label="Nome completo"
         icon={<User className="size-4" />}
         placeholder="Como podemos te chamar?"
         value={name}
         onChange={setName}
         autoComplete="name"
       />
-      <FieldEmail value={email} onChange={setEmail} />
+      <FieldText
+        label="E-mail"
+        icon={<Mail className="size-4" />}
+        placeholder="seu@email.com"
+        value={email}
+        onChange={setEmail}
+        autoComplete="email"
+        type="email"
+      />
       <FieldPassword
+        label="Senha"
         value={password}
         onChange={setPassword}
         visible={showPassword}
         onToggleVisible={() => setShowPassword((v) => !v)}
         autoComplete="new-password"
-        helper="Mínimo de 6 caracteres."
+        helper="Use no mínimo 8 caracteres, com pelo menos uma letra e um número."
+      />
+      <FieldPassword
+        label="Confirmar senha"
+        value={confirmPassword}
+        onChange={setConfirmPassword}
+        visible={showConfirmPassword}
+        onToggleVisible={() => setShowConfirmPassword((v) => !v)}
+        autoComplete="new-password"
       />
 
       <label className="flex cursor-pointer items-start gap-2 text-sm text-ivory-muted">
@@ -280,12 +328,23 @@ function SignUpForm({ onSuccess }: { onSuccess: () => void }) {
           className="mt-0.5 border-border-subtle data-[state=checked]:border-gold data-[state=checked]:bg-gold data-[state=checked]:text-onyx"
         />
         <span>
-          Concordo com os <span className="text-gold">termos</span> e a{" "}
-          <span className="text-gold">política de privacidade</span>.
+          Li e concordo com os{" "}
+          <Link to="/termos-de-uso" target="_blank" rel="noreferrer" className="text-gold underline underline-offset-4">
+            Termos de Uso
+          </Link>{" "}
+          e com a{" "}
+          <Link to="/politica-de-privacidade" target="_blank" rel="noreferrer" className="text-gold underline underline-offset-4">
+            Política de Privacidade
+          </Link>
+          .
         </span>
       </label>
 
-      <PrimaryGoldButton type="submit" loading={loading}>
+      <p className="text-[11px] leading-relaxed text-ivory-muted/70">
+        Documentos vigentes: Termos v{LEGAL_TERMS_VERSION} e Política v{LEGAL_PRIVACY_VERSION}, atualizados em {LEGAL_LAST_UPDATED}.
+      </p>
+
+      <PrimaryGoldButton type="submit" loading={loading} disabled={!accept}>
         Criar conta
       </PrimaryGoldButton>
 
@@ -295,10 +354,6 @@ function SignUpForm({ onSuccess }: { onSuccess: () => void }) {
     </form>
   );
 }
-
-/* -------------------------------------------------------------------------- */
-/*  Subcomponentes                                                            */
-/* -------------------------------------------------------------------------- */
 
 function FieldText({
   label,
@@ -310,7 +365,7 @@ function FieldText({
   type = "text",
 }: {
   label: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   placeholder: string;
   value: string;
   onChange: (v: string) => void;
@@ -319,13 +374,9 @@ function FieldText({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <Label className="font-mono text-[10px] uppercase tracking-[0.22em] text-ivory-muted">
-        {label}
-      </Label>
+      <Label className="font-mono text-[10px] uppercase tracking-[0.22em] text-ivory-muted">{label}</Label>
       <div className="relative">
-        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ivory-muted">
-          {icon}
-        </span>
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ivory-muted">{icon}</span>
         <Input
           type={type}
           required
@@ -340,21 +391,8 @@ function FieldText({
   );
 }
 
-function FieldEmail({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <FieldText
-      label="E-mail"
-      icon={<Mail className="size-4" />}
-      placeholder="seu@email.com"
-      value={value}
-      onChange={onChange}
-      type="email"
-      autoComplete="email"
-    />
-  );
-}
-
 function FieldPassword({
+  label,
   value,
   onChange,
   visible,
@@ -362,6 +400,7 @@ function FieldPassword({
   autoComplete = "current-password",
   helper,
 }: {
+  label: string;
   value: string;
   onChange: (v: string) => void;
   visible: boolean;
@@ -371,9 +410,7 @@ function FieldPassword({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <Label className="font-mono text-[10px] uppercase tracking-[0.22em] text-ivory-muted">
-        Senha
-      </Label>
+      <Label className="font-mono text-[10px] uppercase tracking-[0.22em] text-ivory-muted">{label}</Label>
       <div className="relative">
         <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ivory-muted">
           <Lock className="size-4" />
@@ -396,9 +433,7 @@ function FieldPassword({
           {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
         </button>
       </div>
-      {helper ? (
-        <span className="text-[11px] text-ivory-muted/70">{helper}</span>
-      ) : null}
+      {helper ? <span className="text-[11px] text-ivory-muted/70">{helper}</span> : null}
     </div>
   );
 }
@@ -406,16 +441,18 @@ function FieldPassword({
 function PrimaryGoldButton({
   children,
   loading,
+  disabled,
   type = "button",
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   loading?: boolean;
+  disabled?: boolean;
   type?: "button" | "submit";
 }) {
   return (
     <Button
       type={type}
-      disabled={loading}
+      disabled={loading || disabled}
       className={cn(
         "group/btn relative h-12 w-full overflow-hidden bg-gradient-to-b from-gold to-[oklch(0.66_0.13_75)] font-serif text-base font-medium text-onyx shadow-[0_10px_30px_-12px_var(--gold-glow)] transition-all duration-300 hover:from-gold hover:to-gold hover:shadow-[0_14px_40px_-12px_var(--gold-glow)]",
       )}
@@ -431,9 +468,7 @@ function Divider() {
   return (
     <div className="flex items-center gap-3">
       <span className="h-px flex-1 bg-border-subtle" />
-      <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ivory-muted/70">
-        ou
-      </span>
+      <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-ivory-muted/70">ou</span>
       <span className="h-px flex-1 bg-border-subtle" />
     </div>
   );
@@ -483,6 +518,14 @@ function GoogleGlyph() {
       />
     </svg>
   );
+}
+
+function isStrongEnough(password: string) {
+  return password.length >= 8 && /[A-Za-z]/.test(password) && /\d/.test(password);
+}
+
+function isGoogleTermsRequiredError(err: unknown) {
+  return err instanceof Error && err.message.toLowerCase().includes("primeiro acesso com google");
 }
 
 export default EntrarPage;

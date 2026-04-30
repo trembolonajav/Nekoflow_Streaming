@@ -36,7 +36,11 @@ class AniListIntegrationServiceTest {
                 new AppProperties.User("Admin", "admin@nekoflow.app", "12345678"),
                 new AppProperties.User("User", "user@nekoflow.app", "12345678")
             ),
-            new AppProperties.Integrations(new AppProperties.AniList(ENDPOINT)),
+            new AppProperties.Integrations(
+                new AppProperties.AniList(ENDPOINT),
+                new AppProperties.SeekStreaming("https://seekstreaming.com", null),
+                new AppProperties.Google(null)
+            ),
             new AppProperties.Worker(null)
         );
         service = new AniListIntegrationService(restTemplate, properties);

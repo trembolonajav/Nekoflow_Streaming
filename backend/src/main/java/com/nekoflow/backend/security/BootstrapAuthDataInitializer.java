@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import com.nekoflow.backend.config.AppProperties;
 import com.nekoflow.backend.domain.entity.RoleEntity;
 import com.nekoflow.backend.domain.entity.UserEntity;
+import com.nekoflow.backend.domain.enums.AuthProvider;
 import com.nekoflow.backend.domain.enums.RoleCode;
 import com.nekoflow.backend.domain.repository.RoleRepository;
 import com.nekoflow.backend.domain.repository.UserRepository;
@@ -56,7 +57,7 @@ public class BootstrapAuthDataInitializer implements CommandLineRunner {
         user.setName(config.name());
         user.setEmail(config.email().toLowerCase());
         user.setPasswordHash(passwordEncoder.encode(config.password()));
-        user.setProvider("email");
+        user.setProvider(AuthProvider.LOCAL.name());
         user.setActive(true);
         user.setRoles(roles);
         userRepository.save(user);

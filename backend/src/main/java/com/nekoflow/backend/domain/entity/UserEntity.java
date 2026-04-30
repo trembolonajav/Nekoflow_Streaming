@@ -36,6 +36,9 @@ public class UserEntity {
     @Column(nullable = false)
     private String provider;
 
+    @Column(name = "google_sub")
+    private String googleSub;
+
     @Column(name = "is_active", nullable = false)
     private boolean active;
 
@@ -107,6 +110,14 @@ public class UserEntity {
 
     public void setActive(boolean active) {
         this.active = active;
+    }
+
+    public String getGoogleSub() {
+        return googleSub;
+    }
+
+    public void setGoogleSub(String googleSub) {
+        this.googleSub = googleSub;
     }
 
     public Set<RoleEntity> getRoles() {

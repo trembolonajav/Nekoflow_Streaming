@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Heart, MessageCircle, Share2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CommentDto } from "@/lib/backend-api";
@@ -15,11 +15,17 @@ export function CommentItem({ comment, depth = 0, onReply }: CommentItemProps) {
   const [likes, setLikes] = useState(0);
   const [replyOpen, setReplyOpen] = useState(false);
   const [showAllReplies, setShowAllReplies] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
 
   const isReply = depth === 1;
   const replies = comment.replies ?? [];
   const visibleReplies = showAllReplies ? replies : replies.slice(0, 2);
   const hiddenCount = replies.length - visibleReplies.length;
+  const avatarUrl = !avatarFailed ? comment.user.avatarUrl?.trim() : "";
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [comment.user.avatarUrl]);
 
   const toggleLike = () => {
     setLiked((prev) => {
@@ -36,10 +42,11 @@ export function CommentItem({ comment, depth = 0, onReply }: CommentItemProps) {
       )}
     >
       <div className="relative flex-shrink-0">
-        {comment.user.avatarUrl ? (
+        {avatarUrl ? (
           <img
-            src={comment.user.avatarUrl}
+            src={avatarUrl}
             alt=""
+            onError={() => setAvatarFailed(true)}
             className={cn(
               "rounded-full object-cover",
               isReply ? "h-8 w-8" : "h-10 w-10",

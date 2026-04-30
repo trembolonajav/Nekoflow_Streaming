@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.nekoflow.backend.api.v1.auth.dto.AuthMeResponse;
+import com.nekoflow.backend.api.v1.auth.dto.GoogleAuthRequest;
 import com.nekoflow.backend.api.v1.auth.dto.LoginRequest;
 import com.nekoflow.backend.api.v1.auth.dto.LogoutRequest;
 import com.nekoflow.backend.api.v1.auth.dto.RefreshRequest;
@@ -17,6 +18,7 @@ import com.nekoflow.backend.api.v1.auth.dto.TokenResponse;
 import com.nekoflow.backend.api.v1.common.dto.ApiMessageResponse;
 
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @Validated
@@ -35,8 +37,13 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<TokenResponse> register(@Valid @RequestBody RegisterRequest request) {
-        return ResponseEntity.ok(authService.register(request));
+    public ResponseEntity<TokenResponse> register(@Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(authService.register(request, httpRequest));
+    }
+
+    @PostMapping("/google")
+    public ResponseEntity<TokenResponse> google(@Valid @RequestBody GoogleAuthRequest request, HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(authService.google(request, httpRequest));
     }
 
     @PostMapping("/refresh")

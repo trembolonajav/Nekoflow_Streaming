@@ -15,6 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
 import com.nekoflow.backend.api.v1.common.dto.ApiMessageResponse;
 import com.nekoflow.backend.api.v1.me.dto.ContinueWatchingItemResponse;
 import com.nekoflow.backend.api.v1.me.dto.HistoryItemResponse;
+import com.nekoflow.backend.api.v1.me.dto.ProfileCommentResponse;
 import com.nekoflow.backend.api.v1.me.dto.ProfileResponse;
 import com.nekoflow.backend.api.v1.me.dto.ProfileStatsResponse;
 import com.nekoflow.backend.api.v1.me.dto.UpdatePreferencesRequest;
@@ -134,6 +135,13 @@ public class MeService {
     public List<HistoryItemResponse> getHistory() {
         return watchHistoryRepository.findTop20ByUserIdOrderByWatchedAtDesc(currentUser().getId()).stream()
             .map(this::toHistoryItem)
+            .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProfileCommentResponse> getComments() {
+        return commentRepository.findTop10ByUserIdAndStatusOrderByCreatedAtDesc(currentUser().getId(), "VISIBLE").stream()
+            .map(this::toProfileComment)
             .toList();
     }
 
@@ -264,6 +272,7 @@ public class MeService {
             progress.getEpisode().getNumber(),
             progress.getEpisode().getTitle(),
             progress.getEpisode().getThumbnailUrl(),
+            progress.getAnime().getCoverUrl(),
             progress.getProgressSeconds(),
             progress.getProgressPercent() != null ? progress.getProgressPercent().doubleValue() : 0,
             remainingMinutes
@@ -296,11 +305,25 @@ public class MeService {
         );
     }
 
+    private ProfileCommentResponse toProfileComment(com.nekoflow.backend.domain.entity.CommentEntity comment) {
+        return new ProfileCommentResponse(
+            comment.getId().toString(),
+            comment.getAnime().getId().toString(),
+            comment.getAnime().getSlug(),
+            comment.getAnime().getTitleDisplay(),
+            comment.getEpisode().getId().toString(),
+            comment.getEpisode().getNumber(),
+            comment.getEpisode().getTitle(),
+            comment.isContainsSpoiler() ? "Comentário marcado como spoiler." : comment.getBody(),
+            comment.isContainsSpoiler(),
+            comment.getCreatedAt() != null ? comment.getCreatedAt().toString() : null
+        );
+    }
+
     private UserPreferenceEntity getOrCreatePreferences(UserEntity user) {
         return userPreferenceRepository.findById(user.getId())
             .orElseGet(() -> {
                 UserPreferenceEntity preferences = new UserPreferenceEntity();
-                preferences.setUser(user);
                 preferences.setUserId(user.getId());
                 preferences.setAutoplay(true);
                 preferences.setAutoNext(true);

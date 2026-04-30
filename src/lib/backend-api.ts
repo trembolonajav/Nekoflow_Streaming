@@ -191,6 +191,7 @@ export interface ContinueWatchingDto {
   episodeNumber: number;
   episodeTitle: string;
   thumbnailUrl: string | null;
+  coverUrl: string | null;
   progressSeconds: number;
   progressPercent: number;
   remainingMinutes: number;
@@ -230,6 +231,19 @@ export interface HistoryItemDto {
   episodeTitle: string;
   thumbnailUrl: string | null;
   watchedAt: string;
+}
+
+export interface ProfileCommentDto {
+  id: string;
+  animeId: string;
+  animeSlug: string;
+  animeTitle: string;
+  episodeId: string;
+  episodeNumber: number;
+  episodeTitle: string;
+  body: string;
+  containsSpoiler: boolean;
+  createdAt: string | null;
 }
 
 export interface UserPreferencesDto {
@@ -513,6 +527,10 @@ export function removeFromWatchlist(animeId: string) {
 
 export function fetchHistory() {
   return apiRequest<HistoryItemDto[]>("/me/history", undefined, true);
+}
+
+export function fetchProfileComments() {
+  return apiRequest<ProfileCommentDto[]>("/me/comments", undefined, true);
 }
 
 export function deleteHistoryItem(historyId: string) {

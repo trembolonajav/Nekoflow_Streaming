@@ -15,6 +15,7 @@ export interface AnimeSeasonCard {
 }
 
 export interface AnimeDetailView {
+  id: string;
   slug: string;
   title: string;
   altTitle?: string;

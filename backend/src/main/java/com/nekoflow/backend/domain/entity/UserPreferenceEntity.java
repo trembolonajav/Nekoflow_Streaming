@@ -6,9 +6,6 @@ import java.util.UUID;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.MapsId;
-import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 
 @Entity
@@ -16,12 +13,8 @@ import jakarta.persistence.Table;
 public class UserPreferenceEntity {
 
     @Id
+    @Column(name = "user_id")
     private UUID userId;
-
-    @OneToOne
-    @MapsId
-    @JoinColumn(name = "user_id")
-    private UserEntity user;
 
     @Column(nullable = false)
     private boolean autoplay;
@@ -59,14 +52,6 @@ public class UserPreferenceEntity {
 
     public void setUserId(UUID userId) {
         this.userId = userId;
-    }
-
-    public UserEntity getUser() {
-        return user;
-    }
-
-    public void setUser(UserEntity user) {
-        this.user = user;
     }
 
     public boolean isAutoplay() {

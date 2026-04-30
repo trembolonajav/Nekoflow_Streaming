@@ -54,5 +54,7 @@ app:
     seekstreaming:
       endpoint: ${APP_SEEKSTREAMING_ENDPOINT:https://seekstreaming.com}
       api-token: ${APP_SEEKSTREAMING_API_TOKEN:}
+    google:
+      client-id: ${APP_GOOGLE_CLIENT_ID:}
   worker:
     webhook-secret: ${APP_WORKER_WEBHOOK_SECRET:}
