@@ -79,6 +79,14 @@ export interface HomeItemDto {
   bannerUrl: string | null;
   previewUrl: string | null;
   slug: string | null;
+  synopsis: string | null;
+  type: string | null;
+  status: string | null;
+  seasonLabel: string | null;
+  year: number | null;
+  studio: string | null;
+  averageScore: number | null;
+  genres: string[];
 }
 
 export interface PublicHomeDto {
@@ -142,12 +150,18 @@ export interface AnimeSummaryDto {
   anilistId: number | null;
   titleDisplay: string;
   titleRomaji: string | null;
+  synopsis: string | null;
   coverUrl: string | null;
   bannerUrl: string | null;
   type: string;
   status: string;
   visibility: string;
+  seasonLabel: string | null;
   year: number | null;
+  studio: string | null;
+  averageScore: number | null;
+  genres: string[];
+  episodesCount: number;
 }
 
 export interface WatchPlayerDto {
@@ -350,6 +364,20 @@ export interface AdminSuggestionDto {
   createdAt: string | null;
 }
 
+export interface NotificationDto {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  severity: string;
+  targetType: string;
+  relatedEntityType: string | null;
+  relatedEntityId: string | null;
+  actionUrl: string | null;
+  createdAt: string | null;
+  read: boolean;
+}
+
 export interface AdminDashboardDto {
   metrics: AdminDashboardMetricDto[];
   recentPublications: AdminDashboardPublicationDto[];
@@ -470,6 +498,11 @@ export function fetchAnimeDetail(slug: string) {
   return apiRequest<AnimeDetailDto>(`/animes/${slug}`);
 }
 
+export async function fetchExploreAnimes() {
+  const response = await apiRequest<ApiPageResponse<AnimeSummaryDto>>("/animes?size=100");
+  return response.items;
+}
+
 export async function searchAnimeCatalog(query: string) {
   const response = await apiRequest<ApiPageResponse<AnimeSummaryDto>>(`/animes?q=${encodeURIComponent(query)}&size=6`);
   return response.items.map((anime): AnimeSearchResultDto => ({
@@ -531,6 +564,22 @@ export function fetchHistory() {
 
 export function fetchProfileComments() {
   return apiRequest<ProfileCommentDto[]>("/me/comments", undefined, true);
+}
+
+export function fetchNotifications(page = 0, size = 20) {
+  return apiRequest<ApiPageResponse<NotificationDto>>(`/notifications?page=${page}&size=${size}`, undefined, true);
+}
+
+export function fetchUnreadNotificationCount() {
+  return apiRequest<{ count: number }>("/notifications/unread-count", undefined, true);
+}
+
+export function markNotificationRead(id: string) {
+  return apiRequest<{ message: string }>(`/notifications/${id}/read`, { method: "POST" }, true);
+}
+
+export function markAllNotificationsRead() {
+  return apiRequest<{ message: string }>("/notifications/read-all", { method: "POST" }, true);
 }
 
 export function deleteHistoryItem(historyId: string) {
@@ -603,6 +652,13 @@ export function buildSeekStreamingEmbedUrl(videoId: string) {
 
 export function fetchAdminSuggestions() {
   return apiRequest<AdminSuggestionDto[]>("/admin/suggestions", undefined, true);
+}
+
+export function createPublicSuggestion(payload: { title: string; note?: string | null }) {
+  return apiRequest<AdminSuggestionDto>("/suggestions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function updateAdminSuggestionStatus(id: string, status: string) {

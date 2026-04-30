@@ -8,9 +8,11 @@ import { AuthProvider } from "@/hooks/use-auth";
 import Home from "./pages/Home";
 import Entrar from "./pages/Entrar";
 import Calendario from "./pages/Calendario";
+import Explorar from "./pages/Explorar";
 import Perfil from "./pages/Perfil";
 import Anime from "./pages/Anime";
 import Watch from "./pages/Watch";
+import Notificacoes from "./pages/Notificacoes";
 import NotFound from "./pages/NotFound";
 import TermosDeUso from "./pages/TermosDeUso";
 import PoliticaPrivacidade from "./pages/PoliticaPrivacidade";
@@ -37,9 +39,11 @@ const App = () => (
             <Route path="/" element={<Home />} />
             <Route path="/entrar" element={<Entrar />} />
             <Route path="/calendario" element={<Calendario />} />
+            <Route path="/explorar" element={<Explorar />} />
             <Route path="/perfil" element={<Perfil />} />
             <Route path="/anime/:slug" element={<Anime />} />
             <Route path="/watch/:slug/:episodeNumber" element={<Watch />} />
+            <Route path="/notificacoes" element={<Notificacoes />} />
             <Route path="/termos-de-uso" element={<TermosDeUso />} />
             <Route path="/politica-de-privacidade" element={<PoliticaPrivacidade />} />
 

@@ -35,6 +35,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/health", "/actuator/health", "/actuator/info").permitAll()
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/google", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/v1/suggestions").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/worker/webhooks/releases").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/home", "/api/v1/animes/**", "/api/v1/watch/**", "/api/v1/calendar", "/api/v1/episodes/*/comments").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/episodes/*/comments", "/api/v1/comments/*/replies").authenticated()

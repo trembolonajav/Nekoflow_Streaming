@@ -35,47 +35,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { SuggestAnimeDialog } from "./SuggestAnimeDialog";
 
 const NAV_ITEMS = [
   { label: "Início", to: "/" as const },
   { label: "Calendário", to: "/calendario" as const },
-  { label: "Explorar", to: "/" as const },
-];
-
-const MOCK_NOTIFICATIONS = [
-  {
-    id: 1,
-    title: "Novo episódio disponível",
-    description: "Frieren — Episódio 24 acabou de chegar.",
-    time: "há 12 min",
-    unread: true,
-  },
-  {
-    id: 2,
-    title: "Recomendado para você",
-    description: "Você pode gostar de Apothecary Diaries.",
-    time: "há 2 h",
-    unread: true,
-  },
-  {
-    id: 3,
-    title: "Sua lista foi atualizada",
-    description: "3 títulos voltaram ao catálogo.",
-    time: "ontem",
-    unread: false,
-  },
+  { label: "Explorar", to: "/explorar" as const },
 ];
 
 export function Header() {
@@ -92,8 +64,6 @@ export function Header() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-
-  const unreadCount = MOCK_NOTIFICATIONS.filter((n) => n.unread).length;
 
   const handleSignOut = () => {
     signOut();
@@ -160,21 +130,16 @@ export function Header() {
 
               <div className="my-3 h-px bg-border-subtle" />
 
-              <Link
-                to="/"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center gap-3 rounded-md px-3 py-3 text-sm text-ivory transition-colors hover:bg-surface-elevated hover:text-gold"
-              >
-                <Bell className="size-4" />
-                Notificações
-                {unreadCount > 0 && (
-                  <span className="ml-auto rounded-full bg-gold px-1.5 text-[10px] font-semibold text-onyx">
-                    {unreadCount}
-                  </span>
-                )}
-              </Link>
               {isAuthenticated ? (
                 <>
+                  <Link
+                    to="/notificacoes"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="flex items-center gap-3 rounded-md px-3 py-3 text-sm text-ivory transition-colors hover:bg-surface-elevated hover:text-gold"
+                  >
+                    <Bell className="size-4" />
+                    Notificações
+                  </Link>
                   <Link
                     to="/perfil"
                     onClick={() => setMobileMenuOpen(false)}
@@ -222,10 +187,7 @@ export function Header() {
         {/* Desktop nav */}
         <nav className="ml-4 hidden items-center gap-1 md:flex">
           {NAV_ITEMS.map((item) => {
-            const isActive =
-              item.to === "/"
-                ? location.pathname === "/" && item.label === "Início"
-                : location.pathname.startsWith(item.to);
+            const isActive = item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to);
             return (
               <Link
                 key={item.label}
@@ -283,69 +245,7 @@ export function Header() {
             />
           </div>
 
-          {/* Notifications */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Notificações"
-                className="relative text-ivory hover:bg-surface-elevated hover:text-gold"
-              >
-                <Bell className="size-5" />
-                {unreadCount > 0 && (
-                  <span className="absolute right-1.5 top-1.5 flex size-4 items-center justify-center rounded-full bg-gold text-[10px] font-semibold leading-none text-onyx ring-2 ring-onyx">
-                    {unreadCount}
-                  </span>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="end"
-              className="w-[340px] border-gold/15 bg-surface/95 p-0 backdrop-blur-xl"
-            >
-              <div className="flex items-center justify-between border-b border-border-subtle px-4 py-3">
-                <span className="font-serif text-base text-ivory">Notificações</span>
-                {unreadCount > 0 && (
-                  <span className="text-[10px] uppercase tracking-[0.16em] text-gold">
-                    {unreadCount} novas
-                  </span>
-                )}
-              </div>
-              <ul className="max-h-[360px] overflow-y-auto">
-                {MOCK_NOTIFICATIONS.map((n) => (
-                  <li
-                    key={n.id}
-                    className="group cursor-pointer border-b border-border-subtle px-4 py-3 transition-colors last:border-0 hover:bg-surface-elevated/60"
-                  >
-                    <div className="flex items-start gap-3">
-                      <span
-                        className={cn(
-                          "mt-1.5 size-1.5 shrink-0 rounded-full",
-                          n.unread ? "bg-gold" : "bg-transparent",
-                        )}
-                        aria-hidden
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-ivory">{n.title}</p>
-                        <p className="mt-0.5 text-xs leading-relaxed text-ivory-muted">
-                          {n.description}
-                        </p>
-                        <p className="mt-1 text-[10px] uppercase tracking-[0.14em] text-ivory-muted/60">
-                          {n.time}
-                        </p>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              <div className="border-t border-border-subtle px-4 py-2.5 text-center">
-                <button className="text-xs uppercase tracking-[0.14em] text-gold/80 transition-colors hover:text-gold">
-                  Ver todas
-                </button>
-              </div>
-            </PopoverContent>
-          </Popover>
+          {isAuthenticated ? <NotificationBell /> : null}
 
           {/* Avatar / Entrar */}
           {isAuthenticated && user ? (

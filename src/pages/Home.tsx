@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Play } from "lucide-react";
+import { Play, Star } from "lucide-react";
 
 import { CarouselArrows, useHorizontalScroll } from "@/components/home/CarouselArrows";
 import { Header } from "@/components/layout/Header";
@@ -57,8 +57,8 @@ function Home() {
                 src={activeHero.bannerUrl ?? activeHero.coverUrl ?? ""}
                 fallbackSrc={activeHero.coverUrl ?? activeHero.bannerUrl ?? ""}
               />
-              <div className="absolute inset-0 bg-gradient-to-r from-background via-background/80 to-transparent md:via-background/60" />
-              <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-background/40" />
+              <div className="absolute inset-0 bg-gradient-to-r from-background via-background/85 to-background/20 md:via-background/70 md:to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-background/45" />
             </div>
             {heroItems.length > 1 ? (
               <CarouselArrows
@@ -69,33 +69,57 @@ function Home() {
             ) : null}
             <div className="absolute inset-0 z-10 flex items-center">
               <div className="mx-auto w-full max-w-[1400px] px-6 md:px-10">
-                <div className="max-w-xl">
-                  <span className="inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.32em] text-gold">
-                    <span className="h-px w-8 bg-gold/60" />
-                    {data?.hero.tag ?? "Destaque editorial"}
-                  </span>
-                  <h1 className="mt-6 font-serif text-[40px] font-medium leading-[1.02] tracking-tight text-ivory md:text-[64px]">
-                    {activeHero.title}
-                  </h1>
-                  <p className="mt-5 max-w-lg text-sm leading-relaxed text-ivory/85 md:text-base">
-                    {activeHero.subtitle ?? "Curadoria principal da NekoFlow."}
-                  </p>
-                  <div className="mt-9 flex flex-wrap items-center gap-3">
-                    <Button asChild size="lg" className="h-12 rounded-full bg-gold px-7 text-onyx hover:bg-gold/90">
-                      <Link to={`/watch/${activeHero.slug}/1`}>
-                        <Play className="mr-2 h-4 w-4 fill-onyx" />
-                        {data?.hero.ctaLabel ?? "Assistir agora"}
-                      </Link>
-                    </Button>
-                    <Button
-                      asChild
-                      size="lg"
-                      variant="ghost"
-                      className="h-12 rounded-full border border-ivory/20 px-7 text-ivory hover:border-ivory/40 hover:bg-ivory/5 hover:text-ivory"
-                    >
-                      <Link to={`/anime/${activeHero.slug}`}>Ver detalhes</Link>
-                    </Button>
+                <div className="grid items-center gap-8 md:grid-cols-[minmax(0,1fr)_220px] lg:grid-cols-[minmax(0,1fr)_280px]">
+                  <div className="max-w-2xl">
+                    <span className="inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.32em] text-gold">
+                      <span className="h-px w-8 bg-gold/60" />
+                      {data?.hero.tag ?? "Destaque editorial"}
+                    </span>
+                    <h1 className="mt-6 font-serif text-[42px] font-medium leading-[1.02] tracking-tight text-ivory md:text-[72px]">
+                      {activeHero.title}
+                    </h1>
+                    <HeroMeta item={activeHero} />
+                    <p className="mt-6 line-clamp-3 max-w-xl text-sm leading-relaxed text-ivory/85 md:text-lg">
+                      {activeHero.synopsis ?? activeHero.subtitle ?? "Curadoria principal da NekoFlow."}
+                    </p>
+                    <div className="mt-9 flex flex-wrap items-center gap-3">
+                      <Button asChild size="lg" className="h-12 rounded-full bg-gold px-7 text-onyx hover:bg-gold/90">
+                        <Link to={`/watch/${activeHero.slug}/1`}>
+                          <Play className="mr-2 h-4 w-4 fill-onyx" />
+                          {data?.hero.ctaLabel ?? "Assistir agora"}
+                        </Link>
+                      </Button>
+                      <Button
+                        asChild
+                        size="lg"
+                        variant="ghost"
+                        className="h-12 rounded-full border border-ivory/20 px-7 text-ivory hover:border-ivory/40 hover:bg-ivory/5 hover:text-ivory"
+                      >
+                        <Link to={`/anime/${activeHero.slug}`}>Ver detalhes</Link>
+                      </Button>
+                    </div>
+                    {heroItems.length > 1 ? (
+                      <HeroIndicators
+                        total={heroItems.length}
+                        activeIndex={activeHeroIndex}
+                        onSelect={setActiveHeroIndex}
+                      />
+                    ) : null}
                   </div>
+                  {activeHero.coverUrl ? (
+                    <Link
+                      to={`/anime/${activeHero.slug}`}
+                      className="group hidden overflow-hidden rounded-xl border border-gold/20 bg-surface shadow-2xl shadow-onyx/40 transition-all duration-300 hover:border-gold/60 md:block"
+                    >
+                      <div className="aspect-[2/3] overflow-hidden">
+                        <img
+                          src={activeHero.coverUrl}
+                          alt=""
+                          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+                        />
+                      </div>
+                    </Link>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -149,7 +173,82 @@ function toContinueHomeItem(item: ContinueWatchingDto): HomeSectionItem {
     bannerUrl: item.thumbnailUrl,
     previewUrl: null,
     slug: item.animeSlug,
+    synopsis: null,
+    type: null,
+    status: null,
+    seasonLabel: null,
+    year: null,
+    studio: null,
+    averageScore: null,
+    genres: [],
   };
+}
+
+function HeroMeta({ item }: { item: HomeSectionItem }) {
+  const meta = [
+    item.year ? String(item.year) : null,
+    ...(item.genres?.length ? item.genres.slice(0, 2).map(formatMetaLabel) : []),
+    item.studio,
+  ].filter(Boolean);
+  const rating = item.averageScore ? Math.max(0, Math.min(5, Math.round(item.averageScore / 20))) : 0;
+
+  if (meta.length === 0 && rating === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-xs uppercase tracking-[0.22em] text-ivory/80 md:text-sm">
+      {meta.map((value, index) => (
+        <span key={`${value}-${index}`} className="inline-flex items-center gap-4">
+          {index > 0 ? <span className="h-1 w-1 rounded-full bg-ivory-muted/60" /> : null}
+          {value}
+        </span>
+      ))}
+      {rating > 0 ? (
+        <span className="inline-flex items-center gap-1 text-gold">
+          {meta.length > 0 ? <span className="mr-3 h-1 w-1 rounded-full bg-ivory-muted/60" /> : null}
+          {Array.from({ length: 5 }).map((_, index) => (
+            <Star
+              key={index}
+              className={cn("h-4 w-4", index < rating ? "fill-gold" : "fill-transparent opacity-40")}
+            />
+          ))}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function HeroIndicators({
+  total,
+  activeIndex,
+  onSelect,
+}: {
+  total: number;
+  activeIndex: number;
+  onSelect: (index: number) => void;
+}) {
+  return (
+    <div className="mt-14 flex items-center gap-4">
+      <div className="flex items-center gap-3">
+        {Array.from({ length: total }).map((_, index) => (
+          <button
+            key={index}
+            type="button"
+            aria-label={`Ir para destaque ${index + 1}`}
+            onClick={() => onSelect(index)}
+            className={cn(
+              "h-2.5 w-2.5 rotate-45 border border-gold/45 transition-colors",
+              index === activeIndex ? "bg-gold" : "bg-transparent hover:bg-gold/40",
+            )}
+          />
+        ))}
+      </div>
+      <span className="font-mono text-xs uppercase tracking-[0.22em] text-ivory/80">
+        {String(activeIndex + 1).padStart(2, "0")} / {String(total).padStart(2, "0")}
+      </span>
+    </div>
+  );
 }
 
 function HomeSection({ section }: { section: HomeSectionData }) {
@@ -273,6 +372,13 @@ function getContinueDescription(section: HomeSectionData) {
   return section.items.length > 0
     ? "Sugestões editoriais para retomar uma sessão."
     : "Entre na sua conta para acompanhar seu progresso.";
+}
+
+function formatMetaLabel(value: string) {
+  return value
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function getEpisodeNumberFromSubtitle(subtitle: string | null) {

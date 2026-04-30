@@ -23,12 +23,18 @@ public final class CatalogStubData {
             154587L,
             "Frieren: Beyond Journey's End",
             "Sousou no Frieren",
+            "Apos derrotar o Rei Demonio, Frieren parte em uma jornada marcada por memoria, tempo e reencontro.",
             "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx154587.jpg",
             "https://s4.anilist.co/file/anilistcdn/media/anime/banner/154587.jpg",
             "SERIES",
             "RELEASING",
             "PUBLISHED",
-            2024
+            "Winter 2024",
+            2024,
+            "Madhouse",
+            92.0,
+            List.of("Fantasy", "Drama", "Adventure"),
+            2
         );
     }
 
@@ -82,7 +88,15 @@ public final class CatalogStubData {
             "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx154587.jpg",
             "https://s4.anilist.co/file/anilistcdn/media/anime/banner/154587.jpg",
             null,
-            "frieren-beyond-journeys-end"
+            "frieren-beyond-journeys-end",
+            "Apos derrotar o Rei Demonio, Frieren parte em uma jornada marcada por memoria, tempo e reencontro.",
+            "SERIES",
+            "RELEASING",
+            "Winter 2024",
+            2024,
+            "Madhouse",
+            92.0,
+            List.of("Fantasy", "Drama", "Adventure")
         );
 
         return new HomeResponse(

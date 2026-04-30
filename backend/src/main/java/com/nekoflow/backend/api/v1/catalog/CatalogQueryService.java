@@ -105,12 +105,18 @@ public class CatalogQueryService {
             anime.getAnilistId(),
             anime.getTitleDisplay(),
             anime.getTitleRomaji(),
+            anime.getSynopsis(),
             anime.getCoverUrl(),
             anime.getBannerUrl(),
             anime.getType().name(),
             anime.getStatus().name(),
             anime.getVisibility().name(),
-            anime.getYear()
+            anime.getSeasonLabel(),
+            anime.getYear(),
+            anime.getStudio(),
+            anime.getAverageScore() != null ? anime.getAverageScore().doubleValue() : null,
+            heroGenres(anime),
+            anime.getEpisodes() != null ? anime.getEpisodes().size() : 0
         );
     }
 
@@ -236,7 +242,15 @@ public class CatalogQueryService {
             anime.getCoverUrl(),
             anime.getBannerUrl(),
             null,
-            anime.getSlug()
+            anime.getSlug(),
+            anime.getSynopsis(),
+            anime.getType().name(),
+            anime.getStatus().name(),
+            anime.getSeasonLabel(),
+            anime.getYear(),
+            anime.getStudio(),
+            anime.getAverageScore() != null ? anime.getAverageScore().doubleValue() : null,
+            heroGenres(anime)
         );
     }
 
@@ -252,7 +266,15 @@ public class CatalogQueryService {
                 anime.getCoverUrl(),
                 anime.getBannerUrl(),
                 null,
-                anime.getSlug()
+                anime.getSlug(),
+                anime.getSynopsis(),
+                anime.getType().name(),
+                anime.getStatus().name(),
+                anime.getSeasonLabel(),
+                anime.getYear(),
+                anime.getStudio(),
+                anime.getAverageScore() != null ? anime.getAverageScore().doubleValue() : null,
+                heroGenres(anime)
             );
         }
 
@@ -274,8 +296,25 @@ public class CatalogQueryService {
             episode.getAnime().getCoverUrl(),
             episode.getThumbnailUrl(),
             episode.getPreviewUrl(),
-            episode.getAnime().getSlug()
+            episode.getAnime().getSlug(),
+            episode.getAnime().getSynopsis(),
+            episode.getAnime().getType().name(),
+            episode.getAnime().getStatus().name(),
+            episode.getAnime().getSeasonLabel(),
+            episode.getAnime().getYear(),
+            episode.getAnime().getStudio(),
+            episode.getAnime().getAverageScore() != null ? episode.getAnime().getAverageScore().doubleValue() : null,
+            heroGenres(episode.getAnime())
         );
+    }
+
+    private List<String> heroGenres(AnimeEntity anime) {
+        return Stream.of(anime.getType(), anime.getStatus())
+            .filter(java.util.Objects::nonNull)
+            .map(Enum::name)
+            .map(value -> value.replace('_', ' '))
+            .limit(3)
+            .toList();
     }
 
     private String defaultString(String value, String fallback) {

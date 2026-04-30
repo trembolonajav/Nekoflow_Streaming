@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -15,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { createPublicSuggestion } from "@/lib/backend-api";
 import { OrnamentDivider } from "./OrnamentDivider";
 
 interface SuggestAnimeDialogProps {
@@ -23,20 +25,34 @@ interface SuggestAnimeDialogProps {
 
 export function SuggestAnimeDialog({ trigger }: SuggestAnimeDialogProps) {
   const [open, setOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setSubmitting(true);
-
-    // Mock — sem backend nesta camada
-    setTimeout(() => {
-      setSubmitting(false);
-      setOpen(false);
+  const queryClient = useQueryClient();
+  const suggestionMutation = useMutation({
+    mutationFn: createPublicSuggestion,
+    onSuccess: () => {
       toast.success("Sugestão recebida", {
         description: "Obrigado por contribuir com o catálogo do Nekoflow.",
       });
-    }, 450);
+      void queryClient.invalidateQueries({ queryKey: ["admin-suggestions"] });
+      void queryClient.invalidateQueries({ queryKey: ["admin-dashboard"] });
+      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      void queryClient.invalidateQueries({ queryKey: ["notifications-unread-count"] });
+      setOpen(false);
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const title = String(form.get("title") ?? "").trim();
+    const year = String(form.get("year") ?? "").trim();
+    const referenceUrl = String(form.get("referenceUrl") ?? "").trim();
+    const note = String(form.get("note") ?? "").trim();
+    const details = [year ? `Ano: ${year}` : null, referenceUrl ? `Referência: ${referenceUrl}` : null, note || null]
+      .filter(Boolean)
+      .join("\n");
+
+    suggestionMutation.mutate({ title, note: details || null });
   };
 
   return (
@@ -61,6 +77,7 @@ export function SuggestAnimeDialog({ trigger }: SuggestAnimeDialogProps) {
             </Label>
             <Input
               id="anime-name"
+              name="title"
               required
               placeholder="Ex.: Frieren: Beyond Journey's End"
               className="border-border-subtle bg-onyx/50 text-ivory placeholder:text-ivory-muted/60 focus-visible:ring-2 focus-visible:ring-gold/40"
@@ -74,6 +91,7 @@ export function SuggestAnimeDialog({ trigger }: SuggestAnimeDialogProps) {
               </Label>
               <Input
                 id="anime-year"
+                name="year"
                 type="number"
                 min={1960}
                 max={2099}
@@ -87,8 +105,9 @@ export function SuggestAnimeDialog({ trigger }: SuggestAnimeDialogProps) {
               </Label>
               <Input
                 id="anime-link"
+                name="referenceUrl"
                 type="url"
-                placeholder="MAL, AniList, site oficial…"
+                placeholder="MAL, AniList, site oficial..."
                 className="border-border-subtle bg-onyx/50 text-ivory placeholder:text-ivory-muted/60 focus-visible:ring-2 focus-visible:ring-gold/40"
               />
             </div>
@@ -100,6 +119,7 @@ export function SuggestAnimeDialog({ trigger }: SuggestAnimeDialogProps) {
             </Label>
             <Textarea
               id="anime-note"
+              name="note"
               rows={3}
               placeholder="Por que esse anime merece estar no Nekoflow?"
               className="resize-none border-border-subtle bg-onyx/50 text-ivory placeholder:text-ivory-muted/60 focus-visible:ring-2 focus-visible:ring-gold/40"
@@ -117,11 +137,11 @@ export function SuggestAnimeDialog({ trigger }: SuggestAnimeDialogProps) {
             </Button>
             <Button
               type="submit"
-              disabled={submitting}
+              disabled={suggestionMutation.isPending}
               className="bg-gold text-onyx shadow-[0_0_24px_-8px_var(--gold-glow)] hover:bg-gold/90"
             >
               <Plus className="size-4" />
-              {submitting ? "Enviando…" : "Enviar sugestão"}
+              {suggestionMutation.isPending ? "Enviando..." : "Enviar sugestão"}
             </Button>
           </DialogFooter>
         </form>
