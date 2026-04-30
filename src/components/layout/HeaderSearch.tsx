@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Search, X, CornerDownLeft } from "lucide-react";
+import { Search, X, CornerDownLeft, ImageIcon } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { searchAnimeCatalog, type AnimeSearchResultDto } from "@/lib/backend-api";
@@ -179,12 +179,18 @@ export function HeaderSearch({
                             : "text-ivory hover:bg-surface-elevated/70",
                         )}
                       >
-                        <img
-                          src={r.poster}
-                          alt=""
-                          loading="lazy"
-                          className="h-14 w-10 shrink-0 rounded-md object-cover"
-                        />
+                        {r.poster ? (
+                          <img
+                            src={r.poster}
+                            alt=""
+                            loading="lazy"
+                            className="h-14 w-10 shrink-0 rounded-md object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-14 w-10 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-surface-elevated text-ivory-muted">
+                            <ImageIcon className="size-4" />
+                          </div>
+                        )}
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{r.title}</p>
                           {r.altTitle && (

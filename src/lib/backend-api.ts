@@ -136,6 +136,20 @@ export interface AnimeSearchResultDto {
   genres: string[];
 }
 
+export interface AnimeSummaryDto {
+  id: string;
+  slug: string;
+  anilistId: number | null;
+  titleDisplay: string;
+  titleRomaji: string | null;
+  coverUrl: string | null;
+  bannerUrl: string | null;
+  type: string;
+  status: string;
+  visibility: string;
+  year: number | null;
+}
+
 export interface WatchPlayerDto {
   animeSlug: string;
   animeTitle: string;
@@ -443,8 +457,16 @@ export function fetchAnimeDetail(slug: string) {
 }
 
 export async function searchAnimeCatalog(query: string) {
-  const response = await apiRequest<ApiPageResponse<AnimeSearchResultDto>>(`/animes?q=${encodeURIComponent(query)}&size=6`);
-  return response.items;
+  const response = await apiRequest<ApiPageResponse<AnimeSummaryDto>>(`/animes?q=${encodeURIComponent(query)}&size=6`);
+  return response.items.map((anime): AnimeSearchResultDto => ({
+    id: anime.id,
+    slug: anime.slug,
+    title: anime.titleDisplay,
+    altTitle: anime.titleRomaji && anime.titleRomaji !== anime.titleDisplay ? anime.titleRomaji : null,
+    poster: anime.coverUrl ?? anime.bannerUrl,
+    meta: [anime.year, anime.type].filter(Boolean).join(" · "),
+    genres: [],
+  }));
 }
 
 export function fetchWatchPlayer(slug: string, episodeNumber: string) {

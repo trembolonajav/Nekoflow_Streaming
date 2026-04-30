@@ -33,9 +33,10 @@ public class PublicCatalogController {
     @GetMapping("/animes")
     public ResponseEntity<ApiPageResponse<AnimeSummaryResponse>> listAnimes(
         @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "20") int size
+        @RequestParam(defaultValue = "20") int size,
+        @RequestParam(defaultValue = "") String q
     ) {
-        List<AnimeSummaryResponse> items = catalogQueryService.listPublishedAnimes();
+        List<AnimeSummaryResponse> items = catalogQueryService.listPublishedAnimes(q, size);
         return ResponseEntity.ok(new ApiPageResponse<>(items, items.size(), page, size));
     }
 

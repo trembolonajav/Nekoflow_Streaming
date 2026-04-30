@@ -4,6 +4,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
+import java.text.Normalizer;
 import java.util.stream.Stream;
 
 import org.springframework.stereotype.Service;
@@ -52,9 +53,18 @@ public class CatalogQueryService {
     }
 
     public List<AnimeSummaryResponse> listPublishedAnimes() {
+        return listPublishedAnimes("", Integer.MAX_VALUE);
+    }
+
+    public List<AnimeSummaryResponse> listPublishedAnimes(String query, int size) {
+        String normalizedQuery = normalizeSearch(query);
+        int limit = Math.max(1, Math.min(size, 100));
+
         return animeRepository.findAll().stream()
             .filter(anime -> anime.getVisibility() == VisibilityStatus.PUBLISHED)
+            .filter(anime -> normalizedQuery.isBlank() || matchesSearch(anime, normalizedQuery))
             .sorted(Comparator.comparing(AnimeEntity::getTitleDisplay))
+            .limit(limit)
             .map(this::toSummary)
             .toList();
     }
@@ -270,5 +280,30 @@ public class CatalogQueryService {
 
     private String defaultString(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private boolean matchesSearch(AnimeEntity anime, String normalizedQuery) {
+        return Stream.of(
+                anime.getTitleDisplay(),
+                anime.getTitleRomaji(),
+                anime.getTitleEnglish(),
+                anime.getTitleNative(),
+                anime.getSlug(),
+                anime.getStudio(),
+                anime.getSeasonLabel(),
+                anime.getYear() == null ? null : anime.getYear().toString()
+            )
+            .filter(value -> value != null && !value.isBlank())
+            .map(this::normalizeSearch)
+            .anyMatch(value -> value.contains(normalizedQuery));
+    }
+
+    private String normalizeSearch(String value) {
+        if (value == null) {
+            return "";
+        }
+        String normalized = Normalizer.normalize(value, Normalizer.Form.NFD)
+            .replaceAll("\\p{M}", "");
+        return normalized.toLowerCase(java.util.Locale.ROOT).trim();
     }
 }
