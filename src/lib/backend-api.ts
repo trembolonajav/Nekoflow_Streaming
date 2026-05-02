@@ -512,7 +512,7 @@ export async function searchAnimeCatalog(query: string) {
     altTitle: anime.titleRomaji && anime.titleRomaji !== anime.titleDisplay ? anime.titleRomaji : null,
     poster: anime.coverUrl ?? anime.bannerUrl,
     meta: [anime.year, anime.type].filter(Boolean).join(" · "),
-    genres: [],
+    genres: anime.genres,
   }));
 }
 

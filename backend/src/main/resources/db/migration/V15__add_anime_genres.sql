@@ -1,0 +1,2 @@
+ALTER TABLE anime
+    ADD COLUMN IF NOT EXISTS genres TEXT;

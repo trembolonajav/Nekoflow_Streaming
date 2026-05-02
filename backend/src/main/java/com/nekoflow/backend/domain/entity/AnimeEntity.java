@@ -3,6 +3,7 @@ package com.nekoflow.backend.domain.entity;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -73,6 +74,9 @@ public class AnimeEntity {
     private BigDecimal averageScore;
 
     private String studio;
+
+    @Column(columnDefinition = "text")
+    private String genres;
 
     @Column(name = "published_at")
     private OffsetDateTime publishedAt;
@@ -214,6 +218,33 @@ public class AnimeEntity {
 
     public void setStudio(String studio) {
         this.studio = studio;
+    }
+
+    public List<String> getGenres() {
+        if (genres == null || genres.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(genres.split("\\n"))
+            .map(String::trim)
+            .filter(value -> !value.isBlank())
+            .distinct()
+            .toList();
+    }
+
+    public void setGenres(List<String> genres) {
+        if (genres == null || genres.isEmpty()) {
+            this.genres = null;
+            return;
+        }
+        this.genres = String.join(
+            "\n",
+            genres.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .toList()
+        );
     }
 
     public OffsetDateTime getPublishedAt() {

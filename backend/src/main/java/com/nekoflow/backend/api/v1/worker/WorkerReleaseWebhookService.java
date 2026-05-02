@@ -4,7 +4,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.text.Normalizer;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -159,6 +161,11 @@ public class WorkerReleaseWebhookService {
             anime.setSeasonLabel(season);
             changed = true;
         }
+        List<String> genres = genres(anilist);
+        if (anime.getGenres().isEmpty() && !genres.isEmpty()) {
+            anime.setGenres(genres);
+            changed = true;
+        }
         return changed ? animeRepository.save(anime) : anime;
     }
 
@@ -182,6 +189,7 @@ public class WorkerReleaseWebhookService {
         ));
         anime.setBannerUrl(text(anilist, "bannerImage"));
         anime.setStudio(firstStudio(anilist));
+        anime.setGenres(genres(anilist));
         anime.setVisibility(VisibilityStatus.PUBLISHED);
         anime.setPublishedAt(OffsetDateTime.now());
         return new AnimeResult(animeRepository.save(anime), true);
@@ -344,6 +352,19 @@ public class WorkerReleaseWebhookService {
         if (isBlank(season) && year == null) return null;
         if (isBlank(season)) return String.valueOf(year);
         return year == null ? season : season + " " + year;
+    }
+
+    private List<String> genres(JsonNode anilist) {
+        JsonNode nodes = anilist.path("genres");
+        if (!nodes.isArray()) return List.of();
+        List<String> genres = new ArrayList<>();
+        for (JsonNode node : nodes) {
+            String genre = node.asText(null);
+            if (!isBlank(genre)) {
+                genres.add(genre.trim());
+            }
+        }
+        return genres;
     }
 
     private String uniqueSlug(String title) {

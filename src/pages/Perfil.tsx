@@ -169,15 +169,15 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-10 px-4 py-8 md:px-8 md:py-10">
-      <section className="rounded-2xl border border-border-subtle bg-surface/40 p-6 md:p-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-5 py-8 md:px-8 md:py-10">
+      <section className="rounded-xl border border-border-subtle bg-surface/45 p-5 shadow-[0_18px_60px_rgba(0,0,0,0.18)] md:p-7">
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-4">
-            <span className="flex size-20 items-center justify-center rounded-full border border-gold/30 bg-onyx font-serif text-3xl text-gold">
+          <div className="flex items-center gap-4 md:gap-5">
+            <span className="flex size-16 shrink-0 items-center justify-center rounded-full border border-gold/30 bg-onyx font-serif text-2xl text-gold md:size-18">
               {profile.name.charAt(0).toUpperCase()}
             </span>
             <div>
-              <h1 className="font-serif text-3xl text-ivory md:text-4xl">{profile.name}</h1>
+              <h1 className="font-serif text-3xl leading-tight text-ivory">{profile.name}</h1>
               <p className="mt-1 text-sm text-gold/80">@{profile.email.split("@")[0]}</p>
               <p className="text-xs text-ivory-muted">{profile.email}</p>
             </div>
@@ -193,18 +193,18 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => {
           const Icon = stat.icon;
           return (
-            <article key={stat.label} className="rounded-xl border border-border-subtle bg-surface/40 p-5">
+            <article key={stat.label} className="rounded-xl border border-border-subtle bg-surface/45 p-4">
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.16em] text-ivory-muted">{stat.label}</p>
-                  <p className="mt-2 font-serif text-4xl text-ivory">{stat.value}</p>
+                  <p className="mt-2 font-serif text-3xl leading-none text-ivory">{stat.value}</p>
                 </div>
-                <span className="flex size-10 items-center justify-center rounded-lg border border-gold/20 bg-gold/5 text-gold">
-                  <Icon className="size-5" />
+                <span className="flex size-9 items-center justify-center rounded-lg border border-gold/20 bg-gold/5 text-gold">
+                  <Icon className="size-4" />
                 </span>
               </div>
             </article>
@@ -212,13 +212,13 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
         })}
       </section>
 
-      <section className="grid gap-8 lg:grid-cols-[1.4fr_1fr]">
-        <div className="space-y-8">
+      <section className="grid items-start gap-7 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-7">
           <Panel title="Continuar assistindo">
             {profile.continueWatching.length === 0 ? (
               <EmptyState label="Você ainda não começou nenhum episódio." actionLabel="Explorar catálogo" to="/" />
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-[repeat(auto-fill,minmax(260px,360px))]">
                 {profile.continueWatching.map((item) => (
                   <Link
                     key={item.episodeId}
@@ -269,15 +269,15 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
                 {history.map((item) => (
                   <article
                     key={item.id}
-                    className="flex flex-col gap-4 rounded-xl border border-border-subtle bg-surface-elevated/30 p-4 sm:flex-row sm:items-center"
+                    className="grid gap-4 rounded-xl border border-border-subtle bg-surface-elevated/30 p-4 md:grid-cols-[176px_minmax(0,1fr)_auto] md:items-center"
                   >
-                    <div className="aspect-video w-full overflow-hidden rounded-lg bg-onyx sm:w-44">
+                    <div className="aspect-video w-full overflow-hidden rounded-lg bg-onyx md:w-44">
                       {item.thumbnailUrl ? (
                         <img src={item.thumbnailUrl} alt="" className="h-full w-full object-cover" />
                       ) : null}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <Link to={`/anime/${item.animeSlug}`} className="truncate font-medium text-ivory hover:text-gold">
+                      <Link to={`/anime/${item.animeSlug}`} className="block truncate font-medium text-ivory hover:text-gold">
                         {item.animeTitle}
                       </Link>
                       <p className="mt-1 text-xs text-ivory-muted">
@@ -287,7 +287,7 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
                         {new Date(item.watchedAt).toLocaleString("pt-BR")}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2 md:justify-end">
                       <Button asChild size="sm" className="bg-gold text-onyx hover:bg-gold/90">
                         <Link to={`/watch/${item.animeSlug}/${item.episodeNumber}`}>Retomar</Link>
                       </Button>
@@ -307,31 +307,31 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
           </Panel>
         </div>
 
-        <div className="space-y-8">
+        <div className="space-y-7">
           <Panel title="Minha lista">
             {watchlist.length === 0 ? (
               <EmptyState label="Sua lista ainda está vazia." actionLabel="Encontrar animes" to="/" />
             ) : (
               <div className="space-y-3">
                 {watchlist.map((item) => (
-                  <article key={item.id} className="flex items-center gap-3 rounded-xl border border-border-subtle bg-surface-elevated/30 p-3">
+                  <article key={item.id} className="grid grid-cols-[56px_minmax(0,1fr)] gap-3 rounded-xl border border-border-subtle bg-surface-elevated/30 p-3">
                     <div className="h-20 w-14 overflow-hidden rounded-md bg-onyx">
                       {item.coverUrl ? <img src={item.coverUrl} alt="" className="h-full w-full object-cover" /> : null}
                     </div>
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0">
                       <Link to={`/anime/${item.animeSlug}`} className="line-clamp-2 font-medium text-ivory hover:text-gold">
                         {item.title}
                       </Link>
                       <p className="mt-1 text-[11px] uppercase tracking-[0.14em] text-ivory-muted">{item.status}</p>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => removeWatchlistMutation.mutate(item.animeId)}
+                        className="mt-2 h-7 px-2 text-xs text-ivory-muted hover:bg-surface hover:text-destructive"
+                      >
+                        Remover
+                      </Button>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => removeWatchlistMutation.mutate(item.animeId)}
-                      className="text-ivory-muted hover:bg-surface hover:text-destructive"
-                    >
-                      Remover
-                    </Button>
                   </article>
                 ))}
               </div>
@@ -347,7 +347,7 @@ function ProfileContent({ onSignOut }: { onSignOut: () => void }) {
                   <article key={comment.id} className="rounded-xl border border-border-subtle bg-surface-elevated/30 p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <Link to={`/anime/${comment.animeSlug}`} className="line-clamp-1 font-medium text-ivory hover:text-gold">
+                        <Link to={`/anime/${comment.animeSlug}`} className="block truncate font-medium text-ivory hover:text-gold">
                           {comment.animeTitle}
                         </Link>
                         <p className="mt-1 text-xs text-ivory-muted">
@@ -426,9 +426,9 @@ function Panel({
   action?: { label: string; onClick: () => void };
 }) {
   return (
-    <section className="rounded-2xl border border-border-subtle bg-surface/40 p-5 md:p-6">
+    <section className="rounded-xl border border-border-subtle bg-surface/45 p-5">
       <div className="mb-5 flex items-center justify-between gap-4">
-        <h2 className="font-serif text-2xl text-ivory">{title}</h2>
+        <h2 className="font-serif text-xl leading-none text-ivory md:text-2xl">{title}</h2>
         {action ? (
           <button
             type="button"

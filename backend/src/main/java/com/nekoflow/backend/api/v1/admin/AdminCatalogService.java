@@ -228,6 +228,7 @@ public class AdminCatalogService {
         anime.setCoverUrl(blankToNull(request.coverUrl()));
         anime.setBannerUrl(blankToNull(request.bannerUrl()));
         anime.setStudio(blankToNull(request.studio()));
+        anime.setGenres(request.genres());
         anime.setPublishedAt(visibility == VisibilityStatus.PUBLISHED ? OffsetDateTime.now() : null);
     }
 
@@ -294,7 +295,7 @@ public class AdminCatalogService {
             anime.getCoverUrl(),
             anime.getBannerUrl(),
             anime.getStudio(),
-            List.of(),
+            anime.getGenres(),
             anime.getEpisodes() != null ? anime.getEpisodes().size() : 0,
             anime.getPublishedAt() != null ? anime.getPublishedAt().toString() : null
         );

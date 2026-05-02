@@ -8,6 +8,7 @@ import java.text.Normalizer;
 import java.util.stream.Stream;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.nekoflow.backend.api.v1.catalog.dto.AnimeDetailResponse;
 import com.nekoflow.backend.api.v1.catalog.dto.AnimeEpisodeSummaryResponse;
@@ -56,6 +57,7 @@ public class CatalogQueryService {
         return listPublishedAnimes("", Integer.MAX_VALUE);
     }
 
+    @Transactional(readOnly = true)
     public List<AnimeSummaryResponse> listPublishedAnimes(String query, int size) {
         String normalizedQuery = normalizeSearch(query);
         int limit = Math.max(1, Math.min(size, 100));
@@ -69,16 +71,19 @@ public class CatalogQueryService {
             .toList();
     }
 
+    @Transactional(readOnly = true)
     public Optional<AnimeDetailResponse> findPublishedAnimeBySlug(String slug) {
         return animeRepository.findBySlugAndVisibility(slug, VisibilityStatus.PUBLISHED)
             .map(this::toDetail);
     }
 
+    @Transactional(readOnly = true)
     public Optional<WatchPlayerResponse> findPublishedEpisodePlayer(String slug, Integer episodeNumber) {
         return episodeRepository.findByAnimeSlugAndNumberAndStatus(slug, episodeNumber, EpisodeStatus.PUBLISHED)
             .map(this::toWatchPlayer);
     }
 
+    @Transactional(readOnly = true)
     public HomeResponse getHome() {
         List<HeroConfigEntity> heroItems = heroConfigRepository.findAllByActiveTrueOrderBySortOrderAscIdAsc();
         HeroBlockResponse hero = new HeroBlockResponse(
@@ -115,7 +120,7 @@ public class CatalogQueryService {
             anime.getYear(),
             anime.getStudio(),
             anime.getAverageScore() != null ? anime.getAverageScore().doubleValue() : null,
-            heroGenres(anime),
+            displayGenres(anime),
             anime.getEpisodes() != null ? anime.getEpisodes().size() : 0
         );
     }
@@ -144,7 +149,7 @@ public class CatalogQueryService {
             anime.getCoverUrl(),
             anime.getBannerUrl(),
             anime.getStudio(),
-            List.of(),
+            displayGenres(anime),
             episodes
         );
     }
@@ -250,7 +255,7 @@ public class CatalogQueryService {
             anime.getYear(),
             anime.getStudio(),
             anime.getAverageScore() != null ? anime.getAverageScore().doubleValue() : null,
-            heroGenres(anime)
+            displayGenres(anime)
         );
     }
 
@@ -274,7 +279,7 @@ public class CatalogQueryService {
                 anime.getYear(),
                 anime.getStudio(),
                 anime.getAverageScore() != null ? anime.getAverageScore().doubleValue() : null,
-                heroGenres(anime)
+                displayGenres(anime)
             );
         }
 
@@ -304,11 +309,15 @@ public class CatalogQueryService {
             episode.getAnime().getYear(),
             episode.getAnime().getStudio(),
             episode.getAnime().getAverageScore() != null ? episode.getAnime().getAverageScore().doubleValue() : null,
-            heroGenres(episode.getAnime())
+            displayGenres(episode.getAnime())
         );
     }
 
-    private List<String> heroGenres(AnimeEntity anime) {
+    private List<String> displayGenres(AnimeEntity anime) {
+        List<String> genres = anime.getGenres();
+        if (!genres.isEmpty()) {
+            return genres;
+        }
         return Stream.of(anime.getType(), anime.getStatus())
             .filter(java.util.Objects::nonNull)
             .map(Enum::name)
@@ -330,6 +339,7 @@ public class CatalogQueryService {
                 anime.getSlug(),
                 anime.getStudio(),
                 anime.getSeasonLabel(),
+                String.join(" ", anime.getGenres()),
                 anime.getYear() == null ? null : anime.getYear().toString()
             )
             .filter(value -> value != null && !value.isBlank())
@@ -342,7 +352,8 @@ public class CatalogQueryService {
             return "";
         }
         String normalized = Normalizer.normalize(value, Normalizer.Form.NFD)
-            .replaceAll("\\p{M}", "");
-        return normalized.toLowerCase(java.util.Locale.ROOT).trim();
+            .replaceAll("\\p{M}", "")
+            .replaceAll("[^\\p{Alnum}]+", " ");
+        return normalized.toLowerCase(java.util.Locale.ROOT).trim().replaceAll("\\s+", " ");
     }
 }
