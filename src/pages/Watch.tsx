@@ -13,6 +13,7 @@ import { EpisodeComments } from "@/components/player/EpisodeComments";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchAnimeDetail, fetchWatchPlayer, updateProgress } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
+import { applySeo } from "@/lib/seo";
 
 const PROGRESS_SYNC_INTERVAL_SECONDS = 15;
 
@@ -28,6 +29,16 @@ function PlayerPage() {
     queryFn: () => fetchAnimeDetail(slug),
     enabled: Boolean(slug),
   });
+
+  useEffect(() => {
+    if (!watchQuery.data) return;
+    applySeo({
+      title: `${watchQuery.data.animeTitle} - Episodio ${watchQuery.data.episodeNumber}`,
+      description: `Assista ${watchQuery.data.animeTitle}, episodio ${watchQuery.data.episodeNumber}: ${watchQuery.data.episodeTitle}.`,
+      path: `/watch/${watchQuery.data.animeSlug}/${watchQuery.data.episodeNumber}`,
+      noindex: true,
+    });
+  }, [watchQuery.data]);
 
   if (watchQuery.isLoading || animeQuery.isLoading) {
     return (

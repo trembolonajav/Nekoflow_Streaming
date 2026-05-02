@@ -24,6 +24,7 @@ public record AppProperties(
     }
 
     public record Bootstrap(
+        boolean enabled,
         User admin,
         User user
     ) {

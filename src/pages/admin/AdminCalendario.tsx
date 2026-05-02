@@ -150,10 +150,11 @@ function AdminCalendario() {
   const animesQuery = useQuery({ queryKey: ["admin-animes"], queryFn: fetchAdminAnimes });
   const episodesQuery = useQuery({ queryKey: ["admin-episodes"], queryFn: fetchAdminEpisodes });
   const currentSeason = currentSeasonLabel(weekStart);
-  const episodes = episodesQuery.data ?? [];
+  const episodes = useMemo(() => episodesQuery.data ?? [], [episodesQuery.data]);
+  const animes = useMemo(() => animesQuery.data ?? [], [animesQuery.data]);
   const latestEpisodes = useMemo(
-    () => latestEpisodesByAnime(episodes, animesQuery.data ?? [], currentSeason),
-    [animesQuery.data, currentSeason, episodes],
+    () => latestEpisodesByAnime(episodes, animes, currentSeason),
+    [animes, currentSeason, episodes],
   );
   const initialPlan = useMemo(() => planFromEpisodes(latestEpisodes), [latestEpisodes]);
 

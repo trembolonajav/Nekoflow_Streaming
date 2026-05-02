@@ -7,3 +7,9 @@ backend/.mvn
 .idea
 .vscode
 .env
+.env.*
+!.env.example
+*.sql
+*.dump
+*.backup
+*.bak

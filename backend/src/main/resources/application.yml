@@ -33,6 +33,7 @@ management:
       show-details: never
 
 app:
+  public-base-url: ${APP_PUBLIC_BASE_URL:https://nekoflow.com.br}
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
   jwt:
@@ -40,6 +41,7 @@ app:
     access-token-expiration-seconds: ${APP_JWT_ACCESS_EXPIRATION_SECONDS:3600}
     refresh-token-expiration-seconds: ${APP_JWT_REFRESH_EXPIRATION_SECONDS:2592000}
   bootstrap:
+    enabled: ${APP_BOOTSTRAP_ENABLED:true}
     admin:
       name: ${APP_BOOTSTRAP_ADMIN_NAME:NekoFlow Admin}
       email: ${APP_BOOTSTRAP_ADMIN_EMAIL:admin@nekoflow.app}

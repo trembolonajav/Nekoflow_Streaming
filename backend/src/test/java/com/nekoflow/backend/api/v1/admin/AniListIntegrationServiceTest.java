@@ -33,6 +33,7 @@ class AniListIntegrationServiceTest {
             new AppProperties.Cors("http://localhost:5173"),
             new AppProperties.Jwt("secret", 3600, 2592000),
             new AppProperties.Bootstrap(
+                true,
                 new AppProperties.User("Admin", "admin@nekoflow.app", "12345678"),
                 new AppProperties.User("User", "user@nekoflow.app", "12345678")
             ),

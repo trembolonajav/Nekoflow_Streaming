@@ -46,7 +46,7 @@ export function EpisodeComments({ episodeId, episodeTitle }: EpisodeCommentsProp
     onError: (error: Error) => toast.error(error.message),
   });
 
-  const thread = commentsQuery.data ?? [];
+  const thread = useMemo(() => commentsQuery.data ?? [], [commentsQuery.data]);
   const sorted = useMemo(() => {
     const byReplyCount = (comment: CommentDto) => comment.replies.length;
     if (sort === "relevance") {

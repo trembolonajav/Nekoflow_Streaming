@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
@@ -21,6 +22,7 @@ import {
   type AnimeDetailDto,
 } from "@/lib/backend-api";
 import type { AnimeDetailView } from "@/lib/anime-ui";
+import { applySeo, buildDescription } from "@/lib/seo";
 
 function toAnimeDetail(dto: AnimeDetailDto): AnimeDetailView {
   const durationMin = dto.episodes[0]?.durationSeconds ? Math.round(dto.episodes[0].durationSeconds / 60) : 24;
@@ -85,6 +87,18 @@ function AnimeDetailPage() {
     queryFn: fetchWatchlist,
     enabled: isAuthenticated,
   });
+
+  useEffect(() => {
+    if (!animeQuery.data) return;
+    applySeo({
+      title: animeQuery.data.titleDisplay,
+      description: buildDescription(
+        animeQuery.data.synopsis,
+        `${animeQuery.data.titleDisplay} no catalogo da Nekoflow.`,
+      ),
+      path: `/anime/${animeQuery.data.slug}`,
+    });
+  }, [animeQuery.data]);
 
   const addWatchlistMutation = useMutation({
     mutationFn: addToWatchlist,

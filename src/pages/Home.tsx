@@ -467,6 +467,9 @@ function HeroImage({ src, fallbackSrc }: { src: string; fallbackSrc: string }) {
     <img
       src={currentSrc}
       alt=""
+      loading="eager"
+      fetchPriority="high"
+      decoding="async"
       onError={() => {
         if (currentSrc !== fallbackSrc) {
           setCurrentSrc(fallbackSrc);

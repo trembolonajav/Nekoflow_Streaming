@@ -37,6 +37,10 @@ public class BootstrapAuthDataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
+        if (appProperties.bootstrap() == null || !appProperties.bootstrap().enabled()) {
+            return;
+        }
+
         createUserIfMissing(
             appProperties.bootstrap().admin(),
             Set.of(requiredRole(RoleCode.ADMIN), requiredRole(RoleCode.EDITOR))

@@ -13,6 +13,12 @@ dist-ssr
 *.local
 backend/target
 .env
+.env.*
+!.env.example
+*.sql
+*.dump
+*.backup
+*.bak
 
 # Editor directories and files
 .vscode/*

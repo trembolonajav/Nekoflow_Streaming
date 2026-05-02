@@ -26,7 +26,9 @@ O projeto possui catalogo, player, autenticacao, area do usuario, painel adminis
 |-- public/
 |-- src/
 |-- docker-compose.yml
+|-- docker-compose.prod.yml
 |-- Dockerfile.frontend
+|-- Dockerfile.frontend.prod
 |-- package.json
 `-- README.md
 ```
@@ -100,6 +102,7 @@ Principais variaveis:
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`: conexao do backend.
 - `SERVER_PORT`: porta interna do backend.
 - `APP_CORS_ALLOWED_ORIGINS`: origens liberadas para o frontend.
+- `APP_PUBLIC_BASE_URL`: URL publica usada em sitemap/robots.
 - `APP_JWT_SECRET`: segredo JWT. Trocar em producao.
 - `APP_JWT_ACCESS_EXPIRATION_SECONDS`: expiracao do access token.
 - `APP_JWT_REFRESH_EXPIRATION_SECONDS`: expiracao do refresh token.
@@ -107,13 +110,18 @@ Principais variaveis:
 - `APP_SEEKSTREAMING_ENDPOINT`: endpoint do SeekStreaming.
 - `APP_SEEKSTREAMING_API_TOKEN`: token do provider externo.
 - `APP_WORKER_WEBHOOK_SECRET`: segredo HMAC para webhooks externos.
+- `APP_BOOTSTRAP_ENABLED`: habilita/desabilita criacao automatica dos usuarios iniciais.
 - `APP_BOOTSTRAP_ADMIN_*`: usuario admin inicial.
 - `APP_BOOTSTRAP_USER_*`: usuario comum inicial.
 - `FRONTEND_PORT`, `BACKEND_PORT`, `POSTGRES_PORT`: portas expostas pelo Docker.
 
 Nunca versionar o `.env` real.
 
+Para producao, use `env.production.example` como modelo e crie `.env.production` somente na VPS. Detalhes em [docs/deploy-production.md](docs/deploy-production.md).
+
 ## Como subir com Docker
+
+Ambiente local/desenvolvimento:
 
 ```bash
 docker compose up -d --build
@@ -124,6 +132,14 @@ Servicos:
 - Frontend: `http://localhost:5173`
 - Backend: `http://localhost:8080`
 - Postgres: `localhost:5432`
+
+Ambiente de producao na VPS:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+```
+
+O compose de producao usa `Dockerfile.frontend.prod`, executa `npm run build` e serve `dist/` via Nginx. Nao usa Vite dev server.
 
 Health checks:
 
@@ -260,6 +276,8 @@ mvn test
 Tambem conferir:
 
 - `.env` nao foi adicionado ao Git;
+- `.env.production` real nao foi adicionado ao Git;
+- dumps `.sql`, `.dump`, `.backup` e `.bak` nao foram adicionados ao Git;
 - `backend/target`, `dist` e `node_modules` nao foram versionados;
 - novas variaveis foram refletidas em `.env.example`;
 - novas tabelas foram criadas via Flyway;

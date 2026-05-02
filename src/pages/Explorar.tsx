@@ -49,7 +49,7 @@ function Explorar() {
   }, [searchParams, setSearchParams]);
 
   const params = parseSearchParams(searchParams);
-  const animes = catalogQuery.data ?? [];
+  const animes = useMemo(() => catalogQuery.data ?? [], [catalogQuery.data]);
   const options = useMemo(() => buildOptions(animes), [animes]);
   const filtered = useMemo(() => filterAndSort(animes, params), [animes, params]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
