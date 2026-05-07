@@ -230,6 +230,34 @@ export function getStoredAccessToken(): string | null {
   return loadSession()?.accessToken ?? null;
 }
 
+export async function refreshStoredSession(): Promise<string | null> {
+  const stored = loadSession();
+  if (!stored?.refreshToken) return null;
+
+  try {
+    const payload = await apiRequest<TokenResponse>("/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({ refreshToken: stored.refreshToken }),
+    });
+    const next: StoredSession = {
+      accessToken: payload.accessToken,
+      refreshToken: payload.refreshToken,
+      user: toAuthUser({
+        id: payload.userId,
+        name: payload.name,
+        email: payload.email,
+        roles: payload.roles,
+        provider: payload.provider,
+      }),
+    };
+    saveSession(next);
+    return next.accessToken;
+  } catch {
+    saveSession(null);
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<StoredSession | null>(null);
   const [isReady, setIsReady] = useState(false);

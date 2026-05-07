@@ -9,6 +9,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.net.URLEncoder;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -41,7 +42,7 @@ import com.nekoflow.backend.domain.repository.EpisodeVideoSourceRepository;
 public class WorkerReleaseWebhookService {
 
     private static final String EVENT_RELEASE_PUBLISH = "release.publish";
-    private static final String SEEK_EMBED_BASE = "https://nekoflow.embedseek.com/#";
+    private static final String SEEK_EMBED_BASE = "https://nekoflow.seekplayer.me/#";
 
     private final ObjectMapper objectMapper;
     private final AppProperties appProperties;
@@ -141,7 +142,7 @@ public class WorkerReleaseWebhookService {
             anime.setBannerUrl(banner);
             changed = true;
         }
-        String synopsis = text(anilist, "description");
+        String synopsis = translatedDescription(anilist);
         if (isBlank(anime.getSynopsis()) && !isBlank(synopsis)) {
             anime.setSynopsis(synopsis);
             changed = true;
@@ -178,7 +179,7 @@ public class WorkerReleaseWebhookService {
         anime.setTitleNative(text(anilist.path("title"), "native"));
         anime.setTitleDisplay(firstNonBlank(anime.getTitleRomaji(), anime.getTitleEnglish(), fallbackTitle));
         anime.setSlug(uniqueSlug(anime.getTitleDisplay()));
-        anime.setSynopsis(text(anilist, "description"));
+        anime.setSynopsis(translatedDescription(anilist));
         anime.setType(toAnimeType(text(anilist, "format")));
         anime.setStatus(toAnimeStatus(text(anilist, "status")));
         anime.setSeasonLabel(buildSeasonLabel(anilist));
@@ -206,14 +207,31 @@ public class WorkerReleaseWebhookService {
             });
         boolean created = episode.getPublishedAt() == null && episode.getTitle() == null;
 
-        episode.setTitle("Episodio " + episodeNumber);
-        episode.setSummary(null);
-        episode.setDurationSeconds(integerValue(root, "duration_seconds"));
-        episode.setThumbnailUrl(text(root, "thumbnail_url"));
-        episode.setPreviewUrl(null);
-        episode.setStatus(EpisodeStatus.PUBLISHED);
-        episode.setScheduledFor(null);
-        episode.setPublishedAt(OffsetDateTime.now());
+        if (created) {
+            episode.setTitle("Episodio " + episodeNumber);
+            episode.setSummary(null);
+            episode.setDurationSeconds(integerValue(root, "duration_seconds"));
+            episode.setThumbnailUrl(text(root, "thumbnail_url"));
+            episode.setPreviewUrl(null);
+            episode.setStatus(EpisodeStatus.PUBLISHED);
+            episode.setScheduledFor(null);
+            episode.setPublishedAt(OffsetDateTime.now());
+        } else {
+            Integer duration = integerValue(root, "duration_seconds");
+            String thumbnail = text(root, "thumbnail_url");
+            if (episode.getDurationSeconds() == null && duration != null) {
+                episode.setDurationSeconds(duration);
+            }
+            if (isBlank(episode.getThumbnailUrl()) && !isBlank(thumbnail)) {
+                episode.setThumbnailUrl(thumbnail);
+            }
+            if (episode.getStatus() == null) {
+                episode.setStatus(EpisodeStatus.PUBLISHED);
+            }
+            if (episode.getPublishedAt() == null && episode.getStatus() == EpisodeStatus.PUBLISHED) {
+                episode.setPublishedAt(OffsetDateTime.now());
+            }
+        }
 
         EpisodeEntity saved = episodeRepository.save(episode);
         replaceVideoSource(saved, seekVideoId);
@@ -390,6 +408,41 @@ public class WorkerReleaseWebhookService {
     private String titleFromAniList(JsonNode anilist) {
         JsonNode title = anilist.path("title");
         return firstNonBlank(text(title, "romaji"), text(title, "english"), text(title, "native"));
+    }
+
+    private String translatedDescription(JsonNode anilist) {
+        String description = text(anilist, "description");
+        if (isBlank(description)) {
+            return null;
+        }
+        String cleaned = description.replaceAll("<[^>]+>", "").replace("&nbsp;", " ").trim();
+        if (isBlank(cleaned)) {
+            return null;
+        }
+        return translateToPortuguese(cleaned);
+    }
+
+    private String translateToPortuguese(String text) {
+        try {
+            String encoded = URLEncoder.encode(text, StandardCharsets.UTF_8);
+            String url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=pt&dt=t&q=" + encoded;
+            JsonNode response = restTemplate.getForObject(url, JsonNode.class);
+            JsonNode sentences = response == null ? null : response.path(0);
+            if (sentences == null || !sentences.isArray()) {
+                return text;
+            }
+            StringBuilder translated = new StringBuilder();
+            for (JsonNode sentence : sentences) {
+                String part = sentence.path(0).asText(null);
+                if (!isBlank(part)) {
+                    translated.append(part);
+                }
+            }
+            String result = translated.toString().trim();
+            return isBlank(result) ? text : result;
+        } catch (Exception ignored) {
+            return text;
+        }
     }
 
     private String firstNonBlank(String... values) {

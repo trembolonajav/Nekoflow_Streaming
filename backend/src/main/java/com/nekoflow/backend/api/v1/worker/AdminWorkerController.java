@@ -131,4 +131,40 @@ public class AdminWorkerController {
     public ResponseEntity<Map<String, Object>> pollSources(@RequestBody(required = false) Map<String, Object> body) {
         return ResponseEntity.ok(service.pollSources(body == null ? Map.of() : body));
     }
+
+    @GetMapping("/catalog/jobs")
+    public ResponseEntity<Map<String, Object>> catalogJobs() {
+        return ResponseEntity.ok(service.catalogJobs());
+    }
+
+    @PostMapping("/catalog/jobs")
+    public ResponseEntity<Map<String, Object>> createCatalogJob(@RequestBody Map<String, Object> body) {
+        return ResponseEntity.ok(service.createCatalogJob(body));
+    }
+
+    @PostMapping("/catalog/jobs/{id}/run")
+    public ResponseEntity<Map<String, Object>> runCatalogJob(@PathVariable String id) {
+        return ResponseEntity.ok(service.runCatalogJob(id));
+    }
+
+    @PostMapping("/catalog/jobs/{id}/cancel")
+    public ResponseEntity<Map<String, Object>> cancelCatalogJob(@PathVariable String id) {
+        return ResponseEntity.ok(service.cancelCatalogJob(id));
+    }
+
+    @DeleteMapping("/catalog/jobs/{id}")
+    public ResponseEntity<Map<String, Object>> deleteCatalogJob(@PathVariable String id) {
+        service.deleteCatalogJob(id);
+        return ResponseEntity.ok(Map.of("ok", true));
+    }
+
+    @GetMapping("/organize/inventory")
+    public ResponseEntity<Map<String, Object>> organizeInventory() {
+        return ResponseEntity.ok(service.organizeInventory());
+    }
+
+    @PostMapping("/organize")
+    public ResponseEntity<Map<String, Object>> organize(@RequestBody(required = false) Map<String, Object> body) {
+        return ResponseEntity.ok(service.organize(body == null ? Map.of() : body));
+    }
 }

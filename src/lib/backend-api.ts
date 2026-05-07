@@ -1,7 +1,7 @@
-import { getStoredAccessToken } from "@/hooks/use-auth";
+import { getStoredAccessToken, refreshStoredSession } from "@/hooks/use-auth";
 
 const API_BASE_URL = `${import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080"}/api/v1`;
-const SEEKSTREAMING_EMBED_BASE = "https://nekoflow.embedseek.com/#";
+const SEEKSTREAMING_EMBED_BASE = "https://nekoflow.seekplayer.me/#";
 
 export interface ApiPageResponse<T> {
   items: T[];
@@ -463,14 +463,23 @@ export interface AdminEpisodePayload {
 
 async function apiRequest<T>(path: string, init?: RequestInit, authenticated = false): Promise<T> {
   const token = authenticated ? getStoredAccessToken() : null;
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const buildRequestInit = (accessToken: string | null): RequestInit => ({
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...(init?.headers ?? {}),
     },
   });
+
+  let response = await fetch(`${API_BASE_URL}${path}`, buildRequestInit(token));
+
+  if (authenticated && response.status === 401) {
+    const refreshedToken = await refreshStoredSession();
+    if (refreshedToken) {
+      response = await fetch(`${API_BASE_URL}${path}`, buildRequestInit(refreshedToken));
+    }
+  }
 
   if (!response.ok) {
     let message = "Falha na comunicação com o backend.";

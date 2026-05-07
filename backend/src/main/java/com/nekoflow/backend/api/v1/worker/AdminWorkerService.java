@@ -9,6 +9,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,12 +40,21 @@ public class AdminWorkerService {
     private static final Pattern RE_SIMPLE = Pattern.compile("^(.+?)[\\s\\-_.]+(\\d{1,3})\\s*\\.[a-z0-9]+$", Pattern.CASE_INSENSITIVE);
     private static final String SEEK_BASE = "https://seekstreaming.com";
     private static final int SEEK_PAGE_SIZE = 100;
+    private static final int CATALOG_DRAIN_BATCH_SIZE = 3;
+    private static final int CATALOG_DRAIN_DELAY_SECONDS = 60;
+    private static final int CATALOG_DRAIN_MAX_ATTEMPTS = 200;
+    private static final long CATALOG_MAX_TORRENT_BYTES = 3L * 1024L * 1024L * 1024L;
 
     private final JdbcTemplate jdbc;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final AppProperties appProperties;
     private final WorkerReleaseWebhookService webhookService;
+    private final ScheduledExecutorService catalogDrainExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "catalog-drain");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public AdminWorkerService(
         JdbcTemplate jdbc,
@@ -343,6 +355,225 @@ public class AdminWorkerService {
         return Map.of("ok", true, "sources", sources.size(), "summary", summary);
     }
 
+    public Map<String, Object> catalogJobs() {
+        ensureCatalogTables();
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            select id, url, source, status, status_reason, pages_total, pages_done,
+                   items_found, items_new, items_filtered, items_failed,
+                   release_group_filter, quality_filter, started_at, finished_at, created_at, updated_at
+            from crawl_jobs
+            order by created_at desc
+            limit 100
+            """);
+        return Map.of("items", rows, "total", rows.size());
+    }
+
+    @Transactional
+    public Map<String, Object> createCatalogJob(Map<String, Object> body) {
+        ensureCatalogTables();
+        String url = firstNonBlank(text(body, "url"), "https://nyaa.si/?f=0&c=1_2&q=");
+        UUID id = UUID.randomUUID();
+        jdbc.update("""
+            insert into crawl_jobs (id, url, source, release_group_filter, quality_filter)
+            values (?, ?, 'nyaa', ?, ?)
+            """, id, url, text(body, "release_group_filter"), text(body, "quality_filter"));
+        return Map.of("ok", true, "id", id.toString());
+    }
+
+    @Transactional
+    public Map<String, Object> runCatalogJob(String id) {
+        ensureCatalogTables();
+        Map<String, Object> job = jdbc.queryForMap("select * from crawl_jobs where id = ?::uuid", id);
+        jdbc.update("""
+            update crawl_jobs
+            set status = 'running', status_reason = null, started_at = now(), pages_done = 0,
+                items_found = 0, items_new = 0, items_filtered = 0, items_failed = 0, updated_at = now()
+            where id = ?::uuid
+            """, id);
+
+        int pagesDone = 0;
+        int pagesTotal = 1;
+        int itemsFound = 0;
+        int itemsNew = 0;
+        int itemsFiltered = 0;
+        int itemsFailed = 0;
+        int duplicateItems = 0;
+        try {
+            String firstPage = fetchText(nyaaPageUrl(String.valueOf(job.get("url")), 1));
+            pagesTotal = Math.min(Math.max(detectNyaaPages(firstPage), 1), 10);
+            List<NyaaItem> allItems = new ArrayList<>(parseNyaaItems(firstPage));
+            int firstPageLength = firstPage == null ? 0 : firstPage.length();
+            int firstPageMagnets = countMatches(firstPage, "magnet:?xt=urn:btih");
+            pagesDone = 1;
+            for (int page = 2; page <= pagesTotal; page++) {
+                String html = fetchText(nyaaPageUrl(String.valueOf(job.get("url")), page));
+                List<NyaaItem> pageItems = parseNyaaItems(html);
+                if (pageItems.isEmpty()) break;
+                allItems.addAll(pageItems);
+                pagesDone = page;
+            }
+            itemsFound = allItems.size();
+
+            List<NyaaItem> selected = selectCatalogItems(allItems, string(job.get("release_group_filter")), string(job.get("quality_filter")));
+            itemsFiltered = Math.max(itemsFound - selected.size(), 0);
+            List<NyaaItem> newItems = new ArrayList<>();
+            for (NyaaItem item : selected) {
+                if (item.infohash() != null && seenInfohash(item.infohash())) duplicateItems++;
+                else newItems.add(item);
+            }
+
+            Map<String, Object> uploadFolder = findUploadedFolder();
+            String folderId = string(uploadFolder.get("id"));
+            itemsFailed = newItems.size();
+            String reason = "found=%d selected=%d duplicates=%d sent=%d failed=%d folder=%s drain=scheduled".formatted(
+                itemsFound,
+                selected.size(),
+                duplicateItems,
+                itemsNew,
+                itemsFailed,
+                folderId
+            );
+            if (itemsFound == 0) {
+                reason = reason + " firstPageLength=" + firstPageLength + " firstPageMagnets=" + firstPageMagnets;
+            }
+            jdbc.update("""
+                update crawl_jobs
+                set status = ?, status_reason = ?, pages_total = ?, pages_done = ?, items_found = ?, items_new = ?,
+                    items_filtered = ?, items_failed = ?, finished_at = ?, updated_at = now()
+                where id = ?::uuid
+                """,
+                newItems.isEmpty() ? "done" : "ingesting",
+                reason,
+                pagesTotal,
+                pagesDone,
+                itemsFound,
+                itemsNew,
+                itemsFiltered,
+                itemsFailed,
+                newItems.isEmpty() ? OffsetDateTime.now() : null,
+                id
+            );
+            if (!newItems.isEmpty()) {
+                scheduleCatalogDrain(id, newItems, folderId, itemsFound, selected.size(), duplicateItems, 1);
+            }
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("ok", true);
+            response.put("jobId", id);
+            response.put("pages", pagesDone);
+            response.put("pagesTotal", pagesTotal);
+            response.put("itemsFound", itemsFound);
+            response.put("itemsSelected", selected.size());
+            response.put("itemsNew", itemsNew);
+            response.put("itemsFiltered", itemsFiltered);
+            response.put("itemsFailed", itemsFailed);
+            response.put("duplicates", duplicateItems);
+            response.put("drainScheduled", !newItems.isEmpty());
+            return response;
+        } catch (Exception exception) {
+            String message = truncate(exception.getMessage(), 500);
+            jdbc.update("""
+                update crawl_jobs
+                set status = 'failed', status_reason = ?, pages_done = 0, items_found = ?, items_new = ?,
+                    items_filtered = ?, items_failed = ?, finished_at = now(), updated_at = now()
+                where id = ?::uuid
+                """, message, itemsFound, itemsNew, itemsFiltered, itemsFailed, id);
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, message, exception);
+        }
+    }
+
+    @Transactional
+    public Map<String, Object> cancelCatalogJob(String id) {
+        ensureCatalogTables();
+        int updated = jdbc.update("""
+            update crawl_jobs
+            set status = 'cancelled', status_reason = 'cancelado pelo admin',
+                finished_at = now(), updated_at = now()
+            where id = ?::uuid and status in ('pending', 'running', 'ingesting')
+            """, id);
+        return Map.of("ok", true, "cancelled", updated);
+    }
+
+    @Transactional
+    public void deleteCatalogJob(String id) {
+        ensureCatalogTables();
+        jdbc.update("delete from crawl_jobs where id = ?::uuid", id);
+    }
+
+    public Map<String, Object> organizeInventory() {
+        Map<String, Object> uploadFolder = findUploadedFolder();
+        String uploadFolderId = string(uploadFolder.get("id"));
+        List<Map<String, Object>> videos = seekVideosInFolder(uploadFolderId);
+        List<Map<String, Object>> plan = new ArrayList<>();
+        for (Map<String, Object> video : videos) {
+            String name = firstNonBlank(string(video.get("name")), string(video.get("filename")), string(video.get("title")), string(video.get("id")));
+            ParsedRelease parsed = parseFilename(name);
+            String anime = parsed == null ? cleanTitle(name) : parsed.title();
+            int season = parsed == null || parsed.season() == null ? 1 : parsed.season();
+            int episode = parsed == null || parsed.episode() == null ? 0 : parsed.episode();
+            Map<String, Object> parsedMap = new LinkedHashMap<>();
+            parsedMap.put("anime", anime);
+            parsedMap.put("season", season);
+            parsedMap.put("episode", episode == 0 ? null : episode);
+
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("video_id", video.get("id"));
+            row.put("video_name", name);
+            row.put("parsed", parsedMap);
+            row.put("target_anime_folder_name", anime);
+            row.put("target_season_folder_name", "Temporada " + season);
+            row.put("target_anime_folder_id", null);
+            row.put("target_season_folder_id", null);
+            row.put("will_create_anime", true);
+            row.put("will_create_season", true);
+            row.put("match_confidence", parsed == null ? 0 : 1);
+            plan.add(row);
+        }
+        return Map.of(
+            "ok", true,
+            "upload_folder", Map.of(
+                "id", uploadFolderId,
+                "name", firstNonBlank(string(uploadFolder.get("name")), "UPLOADED"),
+                "total_videos", videos.size()
+            ),
+            "season_pattern", "Temporada {n}",
+            "plan", plan,
+            "all_roots", List.of()
+        );
+    }
+
+    @Transactional
+    public Map<String, Object> organize(Map<String, Object> body) {
+        List<String> ids = stringList(body.get("videoIds"));
+        boolean dryRun = bool(body.get("dryRun"), false);
+        if (ids.isEmpty()) {
+            Map<String, Object> uploadFolder = findUploadedFolder();
+            ids = seekVideosInFolder(string(uploadFolder.get("id"))).stream()
+                .map(item -> string(item.get("id")))
+                .filter(Objects::nonNull)
+                .toList();
+        }
+        List<Map<String, Object>> results = new ArrayList<>();
+        for (String id : ids) {
+            results.add(Map.of(
+                "video_id", id,
+                "action", dryRun ? "would_prepare_folder_plan" : "folder_move_not_enabled",
+                "ok", true
+            ));
+        }
+        return Map.of(
+            "ok", true,
+            "dryRun", dryRun,
+            "stats", Map.of(
+                "processed", ids.size(),
+                "moved", 0,
+                "foldersCreated", 0,
+                "errors", 0,
+                "skipped", ids.size()
+            ),
+            "results", results
+        );
+    }
+
     private Map<String, Object> parseVideos(List<String> onlyIds, boolean reprocess, int limit) {
         long started = System.currentTimeMillis();
         List<Map<String, Object>> videos;
@@ -406,6 +637,382 @@ public class AdminWorkerService {
             "anilist_unavailable", unavailable,
             "errors", errors
         );
+    }
+
+    private void ensureCatalogTables() {
+        jdbc.execute("""
+            create table if not exists crawl_jobs (
+                id uuid primary key default gen_random_uuid(),
+                url text not null,
+                source text not null default 'nyaa',
+                status text not null default 'pending',
+                status_reason text,
+                pages_total integer,
+                pages_done integer not null default 0,
+                items_found integer not null default 0,
+                items_new integer not null default 0,
+                items_filtered integer not null default 0,
+                items_failed integer not null default 0,
+                release_group_filter text,
+                quality_filter text,
+                started_at timestamptz,
+                finished_at timestamptz,
+                created_at timestamptz not null default now(),
+                updated_at timestamptz not null default now()
+            )
+            """);
+        jdbc.execute("create index if not exists crawl_jobs_status_idx on crawl_jobs(status)");
+        jdbc.execute("create index if not exists crawl_jobs_created_at_idx on crawl_jobs(created_at desc)");
+    }
+
+    private String fetchText(String url) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(List.of(MediaType.TEXT_HTML, MediaType.APPLICATION_XHTML_XML, MediaType.ALL));
+        headers.set("User-Agent", "nekoflow-worker/0.1 (+catalog)");
+        return restTemplate.exchange(URI.create(url), HttpMethod.GET, new HttpEntity<>(headers), String.class).getBody();
+    }
+
+    private String nyaaPageUrl(String rawUrl, int page) {
+        String url = rawUrl == null || rawUrl.isBlank() ? "https://nyaa.si/?f=0&c=0_0&q=" : rawUrl.trim();
+        url = url.replace("page=rss&", "").replace("?page=rss", "?").replace("&page=rss", "");
+        url = url.replaceAll("([?&])p=\\d+&?", "$1").replaceAll("[?&]$", "");
+        String separator = url.contains("?") ? "&" : "?";
+        return page <= 1 ? url : url + separator + "p=" + page;
+    }
+
+    private int detectNyaaPages(String html) {
+        String total = firstMatch(html, "Displaying results\\s+\\d+\\s*-\\s*\\d+\\s+out of\\s+(\\d+)\\s+results");
+        if (total != null) {
+            return Math.max(1, (int) Math.ceil(intValue(total, 0) / 75.0));
+        }
+        Matcher matcher = Pattern.compile("[?&]p=(\\d+)").matcher(html == null ? "" : html);
+        int max = 1;
+        while (matcher.find()) max = Math.max(max, intValue(matcher.group(1), max));
+        return max;
+    }
+
+    private List<NyaaItem> parseNyaaItems(String html) {
+        if (html == null || html.isBlank()) return List.of();
+        List<NyaaItem> items = new ArrayList<>();
+        Matcher rowMatcher = Pattern.compile("<tr[\\s\\S]*?</tr>", Pattern.CASE_INSENSITIVE).matcher(html);
+        while (rowMatcher.find()) {
+            String row = rowMatcher.group();
+            String magnet = firstMatch(row, "href=\"(magnet:\\?xt=urn:btih:[^\"]+)\"");
+            String torrentPath = firstMatch(row, "href=\"(/download/\\d+\\.torrent)\"");
+            if (magnet == null && torrentPath == null) continue;
+            String infohash = firstMatch(magnet, "(?i)btih:([a-f0-9]{32,40})");
+            String title = firstMatch(row, "href=\"/view/\\d+\"\\s+title=\"([^\"]+)\"");
+            if (title == null || title.isBlank() || title.equals("Comments")) {
+                title = firstMatch(row, "href=\"/view/\\d+\"[^>]*>(.*?)</a>");
+            }
+            title = stripTags(title == null ? null : htmlDecode(title));
+            if (title != null && !title.isBlank()) {
+                String torrentUrl = torrentPath == null ? null : "https://nyaa.si" + torrentPath;
+                items.add(new NyaaItem(title, infohash, htmlDecode(magnet), torrentUrl, nyaaEpisodeKey(title), parseNyaaSizeBytes(row)));
+            }
+        }
+        return items.isEmpty() ? parseNyaaItemsByAnchors(html) : items;
+    }
+
+    private List<NyaaItem> parseNyaaItemsByAnchors(String html) {
+        List<NyaaItem> items = new ArrayList<>();
+        Matcher viewMatcher = Pattern.compile("href=\"/view/(\\d+)\"\\s+title=\"([^\"]+)\"", Pattern.CASE_INSENSITIVE).matcher(html == null ? "" : html);
+        while (viewMatcher.find()) {
+            String torrentId = viewMatcher.group(1);
+            String title = stripTags(htmlDecode(viewMatcher.group(2)));
+            int from = viewMatcher.end();
+            int to = Math.min((html == null ? 0 : html.length()), from + 2500);
+            String slice = html == null ? "" : html.substring(from, to);
+            String magnet = firstMatch(slice, "href=\"(magnet:\\?xt=urn:btih:[^\"]+)\"");
+            String infohash = firstMatch(magnet, "(?i)btih:([a-f0-9]{32,40})");
+            String torrentUrl = "https://nyaa.si/download/" + torrentId + ".torrent";
+            if (title != null && !title.isBlank()) {
+                items.add(new NyaaItem(title, infohash, htmlDecode(magnet), torrentUrl, nyaaEpisodeKey(title), parseNyaaSizeBytes(slice)));
+            }
+        }
+        return items;
+    }
+
+    private List<NyaaItem> selectCatalogItems(List<NyaaItem> items, String group, String quality) {
+        List<String> tokens = filterTokens(quality);
+        List<String> resolutionTokens = tokens.stream().filter(token -> token.matches("\\d{3,4}p|4k|2160p")).toList();
+        Map<String, List<NyaaItem>> grouped = new LinkedHashMap<>();
+        for (NyaaItem item : items) {
+            if (!isAllowedCatalogTorrent(item)) continue;
+            if (!matchesGroup(item.title(), group)) continue;
+            grouped.computeIfAbsent(item.episodeKey(), ignored -> new ArrayList<>()).add(item);
+        }
+
+        List<NyaaItem> selected = new ArrayList<>();
+        for (List<NyaaItem> variants : grouped.values()) {
+            List<NyaaItem> primary = variants.stream()
+                .filter(item -> matchesTokens(item.title(), tokens))
+                .toList();
+            List<NyaaItem> fallback = variants.stream()
+                .filter(item -> matchesTokens(item.title(), resolutionTokens))
+                .toList();
+            List<NyaaItem> pool = primary.isEmpty() ? fallback : primary;
+            pool.stream().max((a, b) -> Integer.compare(catalogScore(a.title()), catalogScore(b.title()))).ifPresent(selected::add);
+        }
+        return selected;
+    }
+
+    private List<String> filterTokens(String value) {
+        if (value == null || value.isBlank()) return List.of();
+        return Pattern.compile("[,;\\s]+")
+            .splitAsStream(value.toLowerCase().trim())
+            .filter(token -> !token.isBlank())
+            .map(token -> token.equals("hecv") ? "hevc" : token)
+            .toList();
+    }
+
+    private boolean matchesGroup(String title, String group) {
+        if (group == null || group.isBlank()) return true;
+        return normalize(title).contains(normalize(group));
+    }
+
+    private boolean matchesTokens(String title, List<String> tokens) {
+        String normalized = normalize(title);
+        for (String token : tokens) {
+            String wanted = token.equals("hecv") ? "hevc" : token;
+            if (!normalized.contains(normalize(wanted))) return false;
+        }
+        return true;
+    }
+
+    private String nyaaEpisodeKey(String title) {
+        String cleaned = title == null ? "" : title.replaceFirst("^\\d+\\s*", "");
+        Matcher matcher = Pattern.compile("^\\[[^]]+]\\s*(.+?)\\s+-\\s*(\\d{1,3})(?:\\s|\\[|$)", Pattern.CASE_INSENSITIVE).matcher(cleaned);
+        if (matcher.find()) return normalize(matcher.group(1)) + "|" + String.format("%03d", intValue(matcher.group(2), 0));
+        return normalize(cleaned.replaceAll("\\[[^]]+]", " ").replaceAll("\\b(1080p|720p|480p|2160p|4k|hevc|avc|aac|eac3|web[- ]?dl|web[- ]?rip|cr|multisub)\\b", " "));
+    }
+
+    private boolean isAllowedCatalogTorrent(NyaaItem item) {
+        if (item.sizeBytes() > CATALOG_MAX_TORRENT_BYTES) return false;
+        String rawTitle = item.title() == null ? "" : item.title().toLowerCase();
+        String normalized = normalize(rawTitle);
+        if (normalized.contains("batch")) return false;
+        return !Pattern.compile("\\b\\d{1,3}\\s*(?:a|to|through|ate|~|-|–|—)\\s*\\d{1,3}\\b", Pattern.CASE_INSENSITIVE)
+            .matcher(rawTitle)
+            .find();
+    }
+
+    private int catalogScore(String title) {
+        String normalized = normalize(title);
+        int score = 0;
+        if (normalized.contains("1080p")) score += 1000;
+        if (normalized.contains("720p")) score += 500;
+        if (normalized.contains("480p")) score += 100;
+        if (normalized.contains("hevc")) score += 100;
+        if (normalized.contains("web rip") || normalized.contains("webrip")) score += 20;
+        if (normalized.contains("web dl") || normalized.contains("webdl")) score += 10;
+        return score;
+    }
+
+    private boolean applyFilters(String title, String group, String quality) {
+        String normalizedTitle = title == null ? "" : title.toLowerCase();
+        if (group != null && !group.isBlank()) {
+            String normalizedGroup = group.toLowerCase();
+            if (!normalizedTitle.contains(normalizedGroup) && !normalizedTitle.contains("[" + normalizedGroup + "]")) return false;
+        }
+        if (quality == null || quality.isBlank()) return true;
+        for (String option : quality.toLowerCase().split(",")) {
+            String[] parts = option.trim().split("\\s+");
+            boolean allPartsMatch = parts.length > 0;
+            for (String part : parts) {
+                if (!part.isBlank() && !normalizedTitle.contains(part)) {
+                    allPartsMatch = false;
+                    break;
+                }
+            }
+            if (allPartsMatch) return true;
+        }
+        return false;
+    }
+
+    private boolean seenInfohash(String infohash) {
+        if (infohash == null || infohash.isBlank()) return false;
+        return count("select count(*) from seen_releases where infohash = '" + infohash.replace("'", "''") + "'") > 0;
+    }
+
+    private Map<String, Object> createSeekAdvancedUpload(NyaaItem item, String folderId) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("url", firstNonBlank(item.magnet(), item.torrentUrl()));
+        body.put("name", item.title());
+        body.put("folderId", folderId);
+        return seekPost("/api/v1/video/advance-upload", body, new ParameterizedTypeReference<>() {});
+    }
+
+    private void scheduleCatalogDrain(
+        String jobId,
+        List<NyaaItem> remainingItems,
+        String folderId,
+        int itemsFound,
+        int itemsSelected,
+        int duplicateItems,
+        int attempt
+    ) {
+        List<NyaaItem> snapshot = List.copyOf(remainingItems);
+        catalogDrainExecutor.schedule(
+            () -> drainCatalogBatch(jobId, snapshot, folderId, itemsFound, itemsSelected, duplicateItems, attempt),
+            attempt == 1 ? 1 : CATALOG_DRAIN_DELAY_SECONDS,
+            TimeUnit.SECONDS
+        );
+    }
+
+    private void drainCatalogBatch(
+        String jobId,
+        List<NyaaItem> remainingItems,
+        String folderId,
+        int itemsFound,
+        int itemsSelected,
+        int duplicateItems,
+        int attempt
+    ) {
+        try {
+            String status = jdbc.queryForObject("select status from crawl_jobs where id = ?::uuid", String.class, jobId);
+            if ("cancelled".equals(status)) return;
+
+            List<NyaaItem> stillPending = remainingItems.stream()
+                .filter(item -> item.infohash() == null || !seenInfohash(item.infohash()))
+                .toList();
+            if (stillPending.isEmpty()) {
+                updateCatalogDrainStatus(jobId, itemsFound, itemsSelected, duplicateItems, folderId, attempt, 0, true, null);
+                return;
+            }
+
+            List<NyaaItem> batch = stillPending.subList(0, Math.min(CATALOG_DRAIN_BATCH_SIZE, stillPending.size()));
+            String lastError = null;
+            for (NyaaItem item : batch) {
+                try {
+                    Map<String, Object> task = createSeekAdvancedUpload(item, folderId);
+                    jdbc.update("""
+                        insert into seen_releases (infohash, guid, release_name, release_queue_id)
+                        values (?, ?, ?, null)
+                        on conflict (infohash) do nothing
+                        """, item.infohash(), string(task.get("id")), item.title());
+                } catch (Exception exception) {
+                    lastError = truncate(exception.getMessage(), 180);
+                    // Mantem sem seen_releases para a proxima tentativa.
+                }
+                sleepQuietly(200);
+            }
+
+            List<NyaaItem> nextPending = remainingItems.stream()
+                .filter(item -> item.infohash() == null || !seenInfohash(item.infohash()))
+                .toList();
+            boolean finished = nextPending.isEmpty();
+            boolean exhausted = attempt >= CATALOG_DRAIN_MAX_ATTEMPTS;
+            updateCatalogDrainStatus(jobId, itemsFound, itemsSelected, duplicateItems, folderId, attempt, nextPending.size(), finished, lastError);
+            if (!finished && !exhausted) {
+                scheduleCatalogDrain(jobId, nextPending, folderId, itemsFound, itemsSelected, duplicateItems, attempt + 1);
+            } else if (exhausted) {
+                jdbc.update("""
+                    update crawl_jobs
+                    set status = 'failed', status_reason = ?, finished_at = now(), updated_at = now()
+                    where id = ?::uuid
+                    """,
+                    catalogDrainReason(itemsFound, itemsSelected, duplicateItems, itemsSelected - duplicateItems - nextPending.size(), nextPending.size(), folderId, attempt) + " max_attempts",
+                    jobId
+                );
+            }
+        } catch (Exception exception) {
+            jdbc.update("""
+                update crawl_jobs
+                set status = 'ingesting', status_reason = coalesce(status_reason, '') || ?, updated_at = now()
+                where id = ?::uuid
+                """, " drain_error=" + truncate(exception.getMessage(), 180), jobId);
+            if (attempt < CATALOG_DRAIN_MAX_ATTEMPTS) {
+                scheduleCatalogDrain(jobId, remainingItems, folderId, itemsFound, itemsSelected, duplicateItems, attempt + 1);
+            }
+        }
+    }
+
+    private void updateCatalogDrainStatus(
+        String jobId,
+        int itemsFound,
+        int itemsSelected,
+        int duplicateItems,
+        String folderId,
+        int attempt,
+        int remaining,
+        boolean finished,
+        String lastError
+    ) {
+        int sent = Math.max(0, itemsSelected - duplicateItems - remaining);
+        String reason = catalogDrainReason(itemsFound, itemsSelected, duplicateItems, sent, remaining, folderId, attempt);
+        if (lastError != null && !lastError.isBlank()) {
+            reason = reason + " last_error=" + lastError.replaceAll("\\s+", "_");
+        }
+        jdbc.update("""
+            update crawl_jobs
+            set status = ?, status_reason = ?, items_new = ?, items_failed = ?, finished_at = ?, updated_at = now()
+            where id = ?::uuid
+            """,
+            finished ? "done" : "ingesting",
+            reason,
+            sent,
+            remaining,
+            finished ? OffsetDateTime.now() : null,
+            jobId
+        );
+    }
+
+    private String catalogDrainReason(
+        int itemsFound,
+        int itemsSelected,
+        int duplicateItems,
+        int sent,
+        int remaining,
+        String folderId,
+        int attempt
+    ) {
+        return "found=%d selected=%d duplicates=%d sent=%d failed=%d folder=%s attempt=%d".formatted(
+            itemsFound,
+            itemsSelected,
+            duplicateItems,
+            sent,
+            remaining,
+            folderId,
+            attempt
+        );
+    }
+
+    private List<List<NyaaItem>> batches(List<NyaaItem> items, int size) {
+        List<List<NyaaItem>> batches = new ArrayList<>();
+        for (int i = 0; i < items.size(); i += size) {
+            batches.add(items.subList(i, Math.min(i + size, items.size())));
+        }
+        return batches;
+    }
+
+    private Map<String, Object> findUploadedFolder() {
+        String configuredId = System.getenv("APP_SEEKSTREAMING_UPLOAD_FOLDER_ID");
+        List<Map<String, Object>> folders = seekExchange("/api/v1/video/folder", new ParameterizedTypeReference<>() {});
+        if (configuredId != null && !configuredId.isBlank()) {
+            for (Map<String, Object> folder : folders) {
+                if (configuredId.trim().equals(string(folder.get("id")))) return folder;
+            }
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Pasta uploaded configurada nao encontrada no Seek.");
+        }
+        for (Map<String, Object> folder : folders) {
+            String normalizedName = normalize(string(folder.get("name")));
+            if (List.of("uploaded", "upload", "uploads").contains(normalizedName)) return folder;
+        }
+        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Pasta UPLOADED nao encontrada no Seek.");
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> seekVideosInFolder(String folderId) {
+        if (folderId == null || folderId.isBlank()) return List.of();
+        Map<String, Object> response = seekExchange("/api/v1/video/folder/" + folderId, new ParameterizedTypeReference<>() {});
+        Object data = response.get("data");
+        if (!(data instanceof List<?> raw)) return List.of();
+        return raw.stream()
+            .filter(Map.class::isInstance)
+            .map(Map.class::cast)
+            .map(item -> (Map<String, Object>) item)
+            .toList();
     }
 
     private void upsertSeekVideo(Map<?, ?> video) {
@@ -603,6 +1210,16 @@ public class AdminWorkerService {
         return Objects.requireNonNull(restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), type).getBody());
     }
 
+    private <T> T seekPost(String path, Object body, ParameterizedTypeReference<T> type) {
+        String token = resolveSeekToken();
+        if (token == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "SeekStreaming token ausente.");
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("api-token", token);
+        return Objects.requireNonNull(restTemplate.exchange(resolveSeekEndpoint() + path, HttpMethod.POST, new HttpEntity<>(body, headers), type).getBody());
+    }
+
     private String resolveSeekEndpoint() {
         var integrations = appProperties.integrations();
         if (integrations != null && integrations.seekstreaming() != null && integrations.seekstreaming().endpoint() != null && !integrations.seekstreaming().endpoint().isBlank()) {
@@ -725,6 +1342,58 @@ public class AdminWorkerService {
         return value == null ? fallback : Boolean.parseBoolean(String.valueOf(value));
     }
 
+    private String firstMatch(String value, String regex) {
+        if (value == null) return null;
+        Matcher matcher = Pattern.compile(regex, Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(value);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private String stripTags(String value) {
+        return value == null ? null : value.replaceAll("(?is)<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+    }
+
+    private String htmlDecode(String value) {
+        if (value == null) return null;
+        return value
+            .replace("&amp;", "&")
+            .replace("&quot;", "\"")
+            .replace("&#39;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">");
+    }
+
+    private int countMatches(String value, String needle) {
+        if (value == null || value.isEmpty() || needle == null || needle.isEmpty()) return 0;
+        int count = 0;
+        int index = 0;
+        while ((index = value.indexOf(needle, index)) >= 0) {
+            count++;
+            index += needle.length();
+        }
+        return count;
+    }
+
+    private long parseNyaaSizeBytes(String html) {
+        if (html == null || html.isBlank()) return -1;
+        Matcher matcher = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(KiB|MiB|GiB|TiB)", Pattern.CASE_INSENSITIVE).matcher(stripTags(html));
+        if (!matcher.find()) return -1;
+        double amount;
+        try {
+            amount = Double.parseDouble(matcher.group(1));
+        } catch (NumberFormatException exception) {
+            return -1;
+        }
+        String unit = matcher.group(2).toLowerCase();
+        double multiplier = switch (unit) {
+            case "kib" -> 1024D;
+            case "mib" -> 1024D * 1024D;
+            case "gib" -> 1024D * 1024D * 1024D;
+            case "tib" -> 1024D * 1024D * 1024D * 1024D;
+            default -> 1D;
+        };
+        return (long) (amount * multiplier);
+    }
+
     private String nullToBlank(String value) {
         return value == null ? "" : value;
     }
@@ -738,5 +1407,8 @@ public class AdminWorkerService {
     }
 
     private record AniListMatch(JsonNode media, boolean unavailable, String error) {
+    }
+
+    private record NyaaItem(String title, String infohash, String magnet, String torrentUrl, String episodeKey, long sizeBytes) {
     }
 }

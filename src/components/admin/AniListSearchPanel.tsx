@@ -46,7 +46,7 @@ export function AniListSearchPanel({ onPick }: AniListSearchPanelProps) {
         })
         .catch((e) => {
           if (e?.name === "AbortError") return;
-          setError("Falha ao consultar AniList. Tente novamente.");
+          setError(e instanceof Error ? e.message : "Falha ao consultar AniList. Tente novamente.");
           setLoading(false);
         });
     }, 350);
