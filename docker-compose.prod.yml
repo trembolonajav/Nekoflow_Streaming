@@ -62,7 +62,6 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
         VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
-        VITE_WORKER_URL: ${VITE_WORKER_URL:-}
     restart: unless-stopped
     depends_on:
       backend:

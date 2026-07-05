@@ -22,6 +22,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -31,6 +33,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nekoflow.backend.config.AppProperties;
+import com.nekoflow.backend.security.AppUserPrincipal;
 
 @Service
 public class AdminWorkerService {
@@ -43,6 +46,8 @@ public class AdminWorkerService {
     private static final int CATALOG_DRAIN_BATCH_SIZE = 3;
     private static final int CATALOG_DRAIN_DELAY_SECONDS = 60;
     private static final int CATALOG_DRAIN_MAX_ATTEMPTS = 200;
+    private static final int RSS_POLL_MAX_PER_SOURCE = 50;
+    private static final int MAX_CONSECUTIVE_SEEK_FAILURES = 5;
     private static final long CATALOG_MAX_TORRENT_BYTES = 3L * 1024L * 1024L * 1024L;
 
     private final JdbcTemplate jdbc;
@@ -197,18 +202,28 @@ public class AdminWorkerService {
 
     @Transactional
     public Map<String, Object> approve(String id) {
-        jdbc.update("update release_queue set status = 'approved', approved_at = now(), approved_by = 'local-admin', updated_at = now() where id = ?::uuid", id);
+        jdbc.update("update release_queue set status = 'approved', approved_at = now(), approved_by = ?, updated_at = now() where id = ?::uuid", currentApprover(), id);
         return Map.of("ok", true);
     }
 
     @Transactional
     public Map<String, Object> approveMany(Map<String, Object> body) {
         List<String> ids = stringList(body.get("ids"));
+        String approver = currentApprover();
         int approved = 0;
         for (String id : ids) {
-            approved += jdbc.update("update release_queue set status = 'approved', approved_at = now(), approved_by = 'local-admin', updated_at = now() where id = ?::uuid", id);
+            approved += jdbc.update("update release_queue set status = 'approved', approved_at = now(), approved_by = ?, updated_at = now() where id = ?::uuid", approver, id);
         }
         return Map.of("ok", true, "approved", approved, "total", ids.size());
+    }
+
+    /** Identidade do admin autenticado para trilha de auditoria (aprovacao/publicacao). */
+    private String currentApprover() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof AppUserPrincipal principal) {
+            return principal.getUsername();
+        }
+        return "system";
     }
 
     @Transactional
@@ -258,6 +273,11 @@ public class AdminWorkerService {
         List<Map<String, Object>> results = new ArrayList<>();
         for (String id : ids) {
             Map<String, Object> row = findQueueRow(id);
+            // Idempotencia: nao republica algo ja publicado (evita episodio/log duplicado).
+            if ("published".equals(string(row.get("status")))) {
+                results.add(Map.of("id", id, "ok", true, "skipped", "already_published"));
+                continue;
+            }
             Map<String, Object> payloadMap = new LinkedHashMap<>();
             payloadMap.put("event", "release.publish");
             payloadMap.put("release_queue_id", row.get("id"));
@@ -275,7 +295,7 @@ public class AdminWorkerService {
             payloadMap.put("sent_at", OffsetDateTime.now().toString());
             String payload = toJson(payloadMap);
             try {
-                var response = webhookService.publishRelease(payload, new HttpHeaders());
+                var response = webhookService.publishReleaseTrusted(payload);
                 jdbc.update("""
                     update release_queue set status = 'published', status_reason = null, published_at = now(), updated_at = now()
                     where id = ?::uuid
@@ -335,28 +355,99 @@ public class AdminWorkerService {
         jdbc.update("delete from rss_sources where id = ?::uuid", id);
     }
 
-    @Transactional
+    /**
+     * Poll RSS real: baixa cada feed habilitado, parseia os itens, aplica filtros
+     * de grupo/qualidade, deduplica por seen_releases e reusa o pipeline existente
+     * (envia o magnet ao Seek via advance-upload). Depois o sync/parse trazem para
+     * a fila. NAO e @Transactional de proposito: fetch de feed + HTTP ao Seek nao
+     * devem segurar uma conexao do pool. Cada escrita e auto-commit e idempotente.
+     */
     public Map<String, Object> pollSources(Map<String, Object> body) {
         List<Map<String, Object>> sources = body.get("sourceId") == null
             ? jdbc.queryForList("select * from rss_sources where enabled = true")
             : jdbc.queryForList("select * from rss_sources where enabled = true and id = ?::uuid", String.valueOf(body.get("sourceId")));
-        List<Map<String, Object>> summary = new ArrayList<>();
-        for (Map<String, Object> source : sources) {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("source_id", source.get("id"));
-            item.put("name", source.get("name"));
-            item.put("fetched", 0);
-            item.put("new", 0);
-            item.put("filtered", 0);
-            item.put("error", "Poll RSS local ainda nao implementa download do feed; fonte salva para proxima etapa.");
-            jdbc.update("update rss_sources set last_polled_at = now(), last_poll_error = ? where id = ?", item.get("error"), source.get("id"));
-            summary.add(item);
+
+        if (sources.isEmpty()) {
+            return Map.of("ok", true, "sources", 0, "new", 0, "summary", List.of());
         }
-        return Map.of("ok", true, "sources", sources.size(), "summary", summary);
+
+        String folderId = string(findUploadedFolder().get("id"));
+        List<Map<String, Object>> summary = new ArrayList<>();
+        int totalNew = 0;
+        for (Map<String, Object> source : sources) {
+            Map<String, Object> result = pollSingleSource(source, folderId);
+            totalNew += (int) result.getOrDefault("new", 0);
+            summary.add(result);
+        }
+        return Map.of("ok", true, "sources", sources.size(), "new", totalNew, "summary", summary);
+    }
+
+    private Map<String, Object> pollSingleSource(Map<String, Object> source, String folderId) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("source_id", source.get("id"));
+        item.put("name", source.get("name"));
+        int fetched = 0;
+        int filtered = 0;
+        int duplicate = 0;
+        int added = 0;
+        int failed = 0;
+        int consecutiveFailures = 0;
+        String error = null;
+        try {
+            String group = string(source.get("release_group_filter"));
+            List<String> qualityTokens = filterTokens(string(source.get("quality_filter")));
+            List<RssFeedParser.RssItem> items = RssFeedParser.parse(fetchText(string(source.get("url"))));
+            fetched = items.size();
+            for (RssFeedParser.RssItem rss : items) {
+                if (added >= RSS_POLL_MAX_PER_SOURCE) break;
+                if (rss.infohash() == null || !matchesGroup(rss.title(), group) || !matchesTokens(rss.title(), qualityTokens)) {
+                    filtered++;
+                    continue;
+                }
+                if (seenInfohash(rss.infohash())) {
+                    duplicate++;
+                    continue;
+                }
+                String magnet = rss.magnet() != null ? rss.magnet() : "magnet:?xt=urn:btih:" + rss.infohash();
+                try {
+                    Map<String, Object> task = createSeekAdvancedUpload(new NyaaItem(rss.title(), rss.infohash(), magnet, null, "", 0L), folderId);
+                    jdbc.update("""
+                        insert into seen_releases (infohash, guid, source_id, release_name)
+                        values (?, ?, ?::uuid, ?)
+                        on conflict (infohash) do nothing
+                        """, rss.infohash(), firstNonBlank(string(task.get("id")), rss.guid()), string(source.get("id")), rss.title());
+                    added++;
+                    consecutiveFailures = 0;
+                    sleepQuietly(200);
+                } catch (Exception uploadError) {
+                    failed++;
+                    consecutiveFailures++;
+                    error = "ingest: " + truncate(uploadError.getMessage(), 160);
+                    // Aborta a fonte se o Seek estiver falhando em sequencia (evita
+                    // martelar um endpoint quebrado); as demais fontes seguem.
+                    if (consecutiveFailures >= MAX_CONSECUTIVE_SEEK_FAILURES) {
+                        error = "ingest abortado apos " + consecutiveFailures + " falhas: " + error;
+                        break;
+                    }
+                }
+            }
+        } catch (Exception fetchError) {
+            error = "feed: " + truncate(fetchError.getMessage(), 180);
+        }
+        item.put("fetched", fetched);
+        item.put("new", added);
+        item.put("filtered", filtered);
+        item.put("duplicate", duplicate);
+        item.put("failed", failed);
+        if (error != null) {
+            item.put("error", error);
+        }
+        jdbc.update("update rss_sources set last_polled_at = now(), last_poll_items = ?, last_poll_error = ? where id = ?",
+            added, error, source.get("id"));
+        return item;
     }
 
     public Map<String, Object> catalogJobs() {
-        ensureCatalogTables();
         List<Map<String, Object>> rows = jdbc.queryForList("""
             select id, url, source, status, status_reason, pages_total, pages_done,
                    items_found, items_new, items_filtered, items_failed,
@@ -370,7 +461,6 @@ public class AdminWorkerService {
 
     @Transactional
     public Map<String, Object> createCatalogJob(Map<String, Object> body) {
-        ensureCatalogTables();
         String url = firstNonBlank(text(body, "url"), "https://nyaa.si/?f=0&c=1_2&q=");
         UUID id = UUID.randomUUID();
         jdbc.update("""
@@ -382,7 +472,6 @@ public class AdminWorkerService {
 
     @Transactional
     public Map<String, Object> runCatalogJob(String id) {
-        ensureCatalogTables();
         Map<String, Object> job = jdbc.queryForMap("select * from crawl_jobs where id = ?::uuid", id);
         jdbc.update("""
             update crawl_jobs
@@ -483,7 +572,6 @@ public class AdminWorkerService {
 
     @Transactional
     public Map<String, Object> cancelCatalogJob(String id) {
-        ensureCatalogTables();
         int updated = jdbc.update("""
             update crawl_jobs
             set status = 'cancelled', status_reason = 'cancelado pelo admin',
@@ -495,7 +583,6 @@ public class AdminWorkerService {
 
     @Transactional
     public void deleteCatalogJob(String id) {
-        ensureCatalogTables();
         jdbc.update("delete from crawl_jobs where id = ?::uuid", id);
     }
 
@@ -637,32 +724,6 @@ public class AdminWorkerService {
             "anilist_unavailable", unavailable,
             "errors", errors
         );
-    }
-
-    private void ensureCatalogTables() {
-        jdbc.execute("""
-            create table if not exists crawl_jobs (
-                id uuid primary key default gen_random_uuid(),
-                url text not null,
-                source text not null default 'nyaa',
-                status text not null default 'pending',
-                status_reason text,
-                pages_total integer,
-                pages_done integer not null default 0,
-                items_found integer not null default 0,
-                items_new integer not null default 0,
-                items_filtered integer not null default 0,
-                items_failed integer not null default 0,
-                release_group_filter text,
-                quality_filter text,
-                started_at timestamptz,
-                finished_at timestamptz,
-                created_at timestamptz not null default now(),
-                updated_at timestamptz not null default now()
-            )
-            """);
-        jdbc.execute("create index if not exists crawl_jobs_status_idx on crawl_jobs(status)");
-        jdbc.execute("create index if not exists crawl_jobs_created_at_idx on crawl_jobs(created_at desc)");
     }
 
     private String fetchText(String url) {
@@ -832,7 +893,8 @@ public class AdminWorkerService {
 
     private boolean seenInfohash(String infohash) {
         if (infohash == null || infohash.isBlank()) return false;
-        return count("select count(*) from seen_releases where infohash = '" + infohash.replace("'", "''") + "'") > 0;
+        Integer found = jdbc.queryForObject("select count(*) from seen_releases where infohash = ?", Integer.class, infohash);
+        return found != null && found > 0;
     }
 
     private Map<String, Object> createSeekAdvancedUpload(NyaaItem item, String folderId) {

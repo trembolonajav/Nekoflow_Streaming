@@ -10,6 +10,11 @@ import {
   Settings,
   ArrowLeft,
   Workflow,
+  CloudDownload,
+  Layers,
+  Inbox,
+  Radio,
+  Terminal,
 } from "lucide-react";
 
 import logoUrl from "@/assets/nekoflow-logo.png";
@@ -24,6 +29,15 @@ const NAV = [
   { label: "Calendário", to: "/admin/calendario" as const, icon: CalendarDays },
   { label: "Comentários", to: "/admin/comentarios" as const, icon: MessageSquareWarning },
   { label: "Sugestões", to: "/admin/sugestoes" as const, icon: Lightbulb },
+];
+
+const WORKER_NAV = [
+  { label: "Dashboard", to: "/admin/worker" as const, icon: Workflow, exact: true },
+  { label: "Sync Seek", to: "/admin/worker/sync" as const, icon: CloudDownload },
+  { label: "Import lote", to: "/admin/worker/import" as const, icon: Layers },
+  { label: "Fila", to: "/admin/worker/queue" as const, icon: Inbox },
+  { label: "Fontes RSS", to: "/admin/worker/sources" as const, icon: Radio },
+  { label: "Logs", to: "/admin/worker/logs" as const, icon: Terminal },
 ];
 
 export function AdminSidebar() {
@@ -73,15 +87,41 @@ export function AdminSidebar() {
 
         <div className="my-5 h-px bg-border-subtle" />
 
-        <a
-          href={import.meta.env.VITE_WORKER_URL ?? "http://localhost:5174"}
-          target="_blank"
-          rel="noreferrer"
-          className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-ivory-muted transition-colors hover:bg-surface-elevated/60 hover:text-ivory"
-        >
-          <Workflow className="size-4" />
-          Worker / Automacao
-        </a>
+        <div className="px-3 pb-2 text-[10px] font-medium uppercase tracking-[0.28em] text-gold/70">
+          Worker / Automação
+        </div>
+        <ul className="space-y-1">
+          {WORKER_NAV.map((item) => {
+            const isActive = item.exact
+              ? location.pathname === item.to
+              : location.pathname === item.to || location.pathname.startsWith(item.to + "/");
+            const Icon = item.icon;
+            return (
+              <li key={item.to}>
+                <Link
+                  to={item.to}
+                  className={cn(
+                    "group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all",
+                    isActive
+                      ? "bg-gold/10 text-gold ring-1 ring-gold/20"
+                      : "text-ivory-muted hover:bg-surface-elevated/60 hover:text-ivory",
+                  )}
+                >
+                  <Icon
+                    className={cn(
+                      "size-4 transition-colors",
+                      isActive ? "text-gold" : "text-ivory-muted/80 group-hover:text-ivory",
+                    )}
+                  />
+                  {item.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+
+        <div className="my-5 h-px bg-border-subtle" />
+
         <Link
           to="/"
           className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-ivory-muted transition-colors hover:bg-surface-elevated/60 hover:text-ivory"

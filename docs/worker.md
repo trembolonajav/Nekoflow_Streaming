@@ -2,6 +2,12 @@
 
 Este documento registra o desenho atual do worker do NekoFlow Streaming.
 
+> **Fusão (julho/2026):** o console do worker, que antes era um repositório React
+> separado, foi absorvido para dentro do admin do site em `/admin/worker/*`
+> (Dashboard, Sync, Import, Fila, Fontes RSS, Logs), reaproveitando o mesmo login
+> de admin. O backend não mudou — as telas já chamavam `/api/v1/admin/worker/*`.
+> As Edge Functions do Supabase (implementação antiga) foram removidas.
+
 ## Objetivo
 
 O worker existe para reduzir o trabalho manual de publicar episodios. Ele conecta tres fontes de informacao:
@@ -112,7 +118,7 @@ Rotas principais:
 - O poll RSS ainda nao baixa feeds; as fontes ficam salvas para a proxima etapa.
 - O parser cobre padroes comuns de filename, mas releases fora de padrao caem em `needs_review`.
 - A publicacao interna pelo admin chama o mesmo servico do webhook, mas sem assinatura porque roda dentro do backend.
-- O embed final usa `https://nekoflow.embedseek.com/#<seek_video_id>`.
+- O embed final usa `https://nekoflow.seekplayer.me/#<seek_video_id>`.
 - Se o AniList falhar, o item deve ser reprocessado depois ou revisado manualmente.
 
 ## Cuidados futuros

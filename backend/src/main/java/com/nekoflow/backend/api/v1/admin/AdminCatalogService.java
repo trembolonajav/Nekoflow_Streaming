@@ -51,6 +51,7 @@ public class AdminCatalogService {
     private final HomeSectionRepository homeSectionRepository;
     private final HomeSectionItemRepository homeSectionItemRepository;
     private final HeroConfigRepository heroConfigRepository;
+    private final com.nekoflow.backend.api.v1.catalog.CatalogCache catalogCache;
 
     public AdminCatalogService(
         AnimeRepository animeRepository,
@@ -58,7 +59,8 @@ public class AdminCatalogService {
         EpisodeVideoSourceRepository episodeVideoSourceRepository,
         HomeSectionRepository homeSectionRepository,
         HomeSectionItemRepository homeSectionItemRepository,
-        HeroConfigRepository heroConfigRepository
+        HeroConfigRepository heroConfigRepository,
+        com.nekoflow.backend.api.v1.catalog.CatalogCache catalogCache
     ) {
         this.animeRepository = animeRepository;
         this.episodeRepository = episodeRepository;
@@ -66,6 +68,7 @@ public class AdminCatalogService {
         this.homeSectionRepository = homeSectionRepository;
         this.homeSectionItemRepository = homeSectionItemRepository;
         this.heroConfigRepository = heroConfigRepository;
+        this.catalogCache = catalogCache;
     }
 
     @Transactional(readOnly = true)
@@ -80,14 +83,18 @@ public class AdminCatalogService {
         AnimeEntity anime = new AnimeEntity();
         anime.setId(UUID.randomUUID());
         applyAnimeRequest(anime, request);
-        return toAdminAnime(animeRepository.save(anime));
+        AdminAnimeResponse response = toAdminAnime(animeRepository.save(anime));
+        catalogCache.invalidateAll();
+        return response;
     }
 
     @Transactional
     public AdminAnimeResponse updateAnime(UUID id, AdminAnimeUpsertRequest request) {
         AnimeEntity anime = requireAnime(id);
         applyAnimeRequest(anime, request);
-        return toAdminAnime(animeRepository.save(anime));
+        AdminAnimeResponse response = toAdminAnime(animeRepository.save(anime));
+        catalogCache.invalidateAll();
+        return response;
     }
 
     @Transactional
@@ -96,13 +103,16 @@ public class AdminCatalogService {
         VisibilityStatus status = parseEnum(VisibilityStatus.class, visibility, "visibility");
         anime.setVisibility(status);
         anime.setPublishedAt(status == VisibilityStatus.PUBLISHED ? OffsetDateTime.now() : null);
-        return toAdminAnime(animeRepository.save(anime));
+        AdminAnimeResponse response = toAdminAnime(animeRepository.save(anime));
+        catalogCache.invalidateAll();
+        return response;
     }
 
     @Transactional
     public void deleteAnime(UUID id) {
         AnimeEntity anime = requireAnime(id);
         animeRepository.delete(anime);
+        catalogCache.invalidateAll();
     }
 
     @Transactional(readOnly = true)
@@ -122,7 +132,9 @@ public class AdminCatalogService {
         applyEpisodeRequest(episode, request);
         EpisodeEntity saved = episodeRepository.save(episode);
         replaceVideoSource(saved, request);
-        return toAdminEpisode(saved);
+        AdminEpisodeResponse response = toAdminEpisode(saved);
+        catalogCache.invalidateAll();
+        return response;
     }
 
     @Transactional
@@ -134,13 +146,16 @@ public class AdminCatalogService {
         applyEpisodeRequest(episode, request);
         EpisodeEntity saved = episodeRepository.save(episode);
         replaceVideoSource(saved, request);
-        return toAdminEpisode(saved);
+        AdminEpisodeResponse response = toAdminEpisode(saved);
+        catalogCache.invalidateAll();
+        return response;
     }
 
     @Transactional
     public void deleteEpisode(UUID id) {
         EpisodeEntity episode = requireEpisode(id);
         episodeRepository.delete(episode);
+        catalogCache.invalidateAll();
     }
 
     @Transactional(readOnly = true)
@@ -257,8 +272,8 @@ public class AdminCatalogService {
         source.setEpisode(episode);
         source.setProvider(parseEnum(VideoProvider.class, defaultIfBlank(request.provider(), "SEEKSTREAMING"), "provider"));
         source.setExternalVideoId(blankToNull(request.externalVideoId()));
-        source.setEmbedUrl(blankToNull(request.embedUrl()));
-        source.setPlayerUrl(blankToNull(request.playerUrl()));
+        source.setEmbedUrl(EmbedUrlValidator.validateOrThrow(request.embedUrl()));
+        source.setPlayerUrl(EmbedUrlValidator.validateOrThrow(request.playerUrl()));
         source.setDefault(true);
         source.setStatus(VideoSourceStatus.ACTIVE);
         episode.getVideoSources().add(source);

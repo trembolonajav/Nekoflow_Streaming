@@ -1,17 +1,19 @@
 package com.nekoflow.backend.api.v1.catalog;
 
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
-import java.text.Normalizer;
 import java.util.stream.Stream;
 
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.nekoflow.backend.api.v1.catalog.dto.AnimeDetailResponse;
 import com.nekoflow.backend.api.v1.catalog.dto.AnimeEpisodeSummaryResponse;
+import com.nekoflow.backend.api.v1.catalog.dto.AnimeSummaryProjection;
 import com.nekoflow.backend.api.v1.catalog.dto.AnimeSummaryResponse;
 import com.nekoflow.backend.api.v1.catalog.dto.HomeResponse;
 import com.nekoflow.backend.api.v1.catalog.dto.HeroBlockResponse;
@@ -24,6 +26,9 @@ import com.nekoflow.backend.domain.entity.EpisodeVideoSourceEntity;
 import com.nekoflow.backend.domain.entity.HeroConfigEntity;
 import com.nekoflow.backend.domain.entity.HomeSectionEntity;
 import com.nekoflow.backend.domain.entity.HomeSectionItemEntity;
+import com.nekoflow.backend.domain.SearchText;
+import com.nekoflow.backend.domain.enums.AnimeStatus;
+import com.nekoflow.backend.domain.enums.AnimeType;
 import com.nekoflow.backend.domain.enums.EpisodeStatus;
 import com.nekoflow.backend.domain.enums.HomeSectionMode;
 import com.nekoflow.backend.domain.enums.VisibilityStatus;
@@ -35,6 +40,7 @@ import com.nekoflow.backend.domain.repository.HomeSectionRepository;
 @Service
 public class CatalogQueryService {
     private static final int RECENT_SECTION_LIMIT = 60;
+    private static final int MAX_QUERY_LENGTH = 100;
 
     private final AnimeRepository animeRepository;
     private final EpisodeRepository episodeRepository;
@@ -53,20 +59,21 @@ public class CatalogQueryService {
         this.heroConfigRepository = heroConfigRepository;
     }
 
-    public List<AnimeSummaryResponse> listPublishedAnimes() {
-        return listPublishedAnimes("", Integer.MAX_VALUE);
-    }
-
     @Transactional(readOnly = true)
-    public List<AnimeSummaryResponse> listPublishedAnimes(String query, int size) {
-        String normalizedQuery = normalizeSearch(query);
+    public List<AnimeSummaryResponse> listPublishedAnimes(String query, int page, int size) {
+        // Cap no tamanho da query (evita query gigante) + normalizacao para bater
+        // com a coluna search_index. Filtro/ordenacao/paginacao acontecem no banco.
+        String capped = query != null && query.length() > MAX_QUERY_LENGTH
+            ? query.substring(0, MAX_QUERY_LENGTH)
+            : query;
+        String normalized = SearchText.normalize(capped);
         int limit = Math.max(1, Math.min(size, 100));
+        int safePage = Math.max(0, page);
+        String like = "%" + normalized + "%";
 
-        return animeRepository.findAll().stream()
-            .filter(anime -> anime.getVisibility() == VisibilityStatus.PUBLISHED)
-            .filter(anime -> normalizedQuery.isBlank() || matchesSearch(anime, normalizedQuery))
-            .sorted(Comparator.comparing(AnimeEntity::getTitleDisplay))
-            .limit(limit)
+        return animeRepository.searchPublished(
+                VisibilityStatus.PUBLISHED, normalized, like, PageRequest.of(safePage, limit))
+            .getContent().stream()
             .map(this::toSummary)
             .toList();
     }
@@ -103,25 +110,25 @@ public class CatalogQueryService {
         return new HomeResponse(hero, sections);
     }
 
-    private AnimeSummaryResponse toSummary(AnimeEntity anime) {
+    private AnimeSummaryResponse toSummary(AnimeSummaryProjection anime) {
         return new AnimeSummaryResponse(
-            anime.getId().toString(),
-            anime.getSlug(),
-            anime.getAnilistId(),
-            anime.getTitleDisplay(),
-            anime.getTitleRomaji(),
-            anime.getSynopsis(),
-            anime.getCoverUrl(),
-            anime.getBannerUrl(),
-            anime.getType().name(),
-            anime.getStatus().name(),
-            anime.getVisibility().name(),
-            anime.getSeasonLabel(),
-            anime.getYear(),
-            anime.getStudio(),
-            anime.getAverageScore() != null ? anime.getAverageScore().doubleValue() : null,
-            displayGenres(anime),
-            anime.getEpisodes() != null ? anime.getEpisodes().size() : 0
+            anime.id().toString(),
+            anime.slug(),
+            anime.anilistId(),
+            anime.titleDisplay(),
+            anime.titleRomaji(),
+            anime.synopsis(),
+            anime.coverUrl(),
+            anime.bannerUrl(),
+            anime.type().name(),
+            anime.status().name(),
+            anime.visibility().name(),
+            anime.seasonLabel(),
+            anime.year(),
+            anime.studio(),
+            anime.averageScore() != null ? anime.averageScore().doubleValue() : null,
+            displayGenres(parseGenres(anime.genresRaw()), anime.type(), anime.status()),
+            anime.episodeCount() != null ? anime.episodeCount().intValue() : 0
         );
     }
 
@@ -209,11 +216,11 @@ public class CatalogQueryService {
             return manualItems;
         }
 
-        List<HomeSectionItemResponse> automaticItems = episodeRepository.findAllByOrderByPublishedAtDescNumberDesc().stream()
-            .filter(episode -> episode.getStatus() == EpisodeStatus.PUBLISHED)
-            .filter(episode -> episode.getAnime() != null && episode.getAnime().getVisibility() == VisibilityStatus.PUBLISHED)
+        List<HomeSectionItemResponse> automaticItems = episodeRepository
+            .findRecentPublished(EpisodeStatus.PUBLISHED, VisibilityStatus.PUBLISHED,
+                PageRequest.of(0, RECENT_SECTION_LIMIT))
+            .stream()
             .map(this::toRecentEpisodeItem)
-            .limit(RECENT_SECTION_LIMIT)
             .toList();
 
         if (section.getMode() == HomeSectionMode.AUTOMATIC) {
@@ -314,11 +321,14 @@ public class CatalogQueryService {
     }
 
     private List<String> displayGenres(AnimeEntity anime) {
-        List<String> genres = anime.getGenres();
-        if (!genres.isEmpty()) {
+        return displayGenres(anime.getGenres(), anime.getType(), anime.getStatus());
+    }
+
+    private List<String> displayGenres(List<String> genres, AnimeType type, AnimeStatus status) {
+        if (genres != null && !genres.isEmpty()) {
             return genres;
         }
-        return Stream.of(anime.getType(), anime.getStatus())
+        return Stream.of(type, status)
             .filter(java.util.Objects::nonNull)
             .map(Enum::name)
             .map(value -> value.replace('_', ' '))
@@ -326,34 +336,19 @@ public class CatalogQueryService {
             .toList();
     }
 
+    private List<String> parseGenres(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(raw.split("\\n"))
+            .map(String::trim)
+            .filter(value -> !value.isBlank())
+            .distinct()
+            .toList();
+    }
+
     private String defaultString(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
     }
 
-    private boolean matchesSearch(AnimeEntity anime, String normalizedQuery) {
-        return Stream.of(
-                anime.getTitleDisplay(),
-                anime.getTitleRomaji(),
-                anime.getTitleEnglish(),
-                anime.getTitleNative(),
-                anime.getSlug(),
-                anime.getStudio(),
-                anime.getSeasonLabel(),
-                String.join(" ", anime.getGenres()),
-                anime.getYear() == null ? null : anime.getYear().toString()
-            )
-            .filter(value -> value != null && !value.isBlank())
-            .map(this::normalizeSearch)
-            .anyMatch(value -> value.contains(normalizedQuery));
-    }
-
-    private String normalizeSearch(String value) {
-        if (value == null) {
-            return "";
-        }
-        String normalized = Normalizer.normalize(value, Normalizer.Form.NFD)
-            .replaceAll("\\p{M}", "")
-            .replaceAll("[^\\p{Alnum}]+", " ");
-        return normalized.toLowerCase(java.util.Locale.ROOT).trim().replaceAll("\\s+", " ");
-    }
 }

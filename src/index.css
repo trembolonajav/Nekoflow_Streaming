@@ -20,6 +20,16 @@
     --surface: 30 12% 12%;
     --surface-elevated: 30 11% 16%;
 
+    /* Superfícies extras usadas pelo console do worker */
+    --surface-2: 30 11% 14%;
+    --surface-3: 30 11% 18%;
+
+    /* Estados (worker/admin) */
+    --success: 145 55% 45%;
+    --success-foreground: 40 18% 95%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 30 14% 9%;
+
     --card: 30 12% 12%;
     --card-foreground: 40 18% 93%;
     --popover: 30 12% 13%;
@@ -117,5 +127,52 @@
 
   :focus-visible {
     outline: none;
+  }
+}
+
+/*
+ * Utilitários do console do worker (portado do repositório separado).
+ * Mantidos genéricos para não poluir o design system editorial do site.
+ */
+@layer components {
+  .mono {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-feature-settings: "tnum";
+  }
+
+  .panel {
+    border-radius: var(--radius);
+    border: 1px solid hsl(var(--foreground) / 0.08);
+    background-color: hsl(var(--card));
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(hsl(var(--foreground) / 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--foreground) / 0.03) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+
+  .status-dot {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+  }
+
+  .status-dot-pulse {
+    animation: status-dot-pulse 1.8s ease-in-out infinite;
+  }
+
+  @keyframes status-dot-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.4;
+      transform: scale(1.6);
+    }
   }
 }
