@@ -1,6 +1,10 @@
 package com.nekoflow.backend.api.v1.auth;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.OffsetDateTime;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
@@ -173,7 +177,7 @@ public class AuthService {
 
     @Transactional
     public TokenResponse refresh(RefreshRequest request) {
-        RefreshTokenEntity refreshToken = refreshTokenRepository.findByToken(request.refreshToken())
+        RefreshTokenEntity refreshToken = refreshTokenRepository.findByToken(hashRefreshToken(request.refreshToken()))
             .orElseThrow(() -> new IllegalArgumentException("Refresh token not found."));
 
         if (refreshToken.isRevoked() || refreshToken.getExpiresAt().isBefore(OffsetDateTime.now())) {
@@ -187,7 +191,7 @@ public class AuthService {
 
     @Transactional
     public void logout(LogoutRequest request) {
-        refreshTokenRepository.findByToken(request.refreshToken())
+        refreshTokenRepository.findByToken(hashRefreshToken(request.refreshToken()))
             .ifPresent(token -> {
                 token.setRevoked(true);
                 refreshTokenRepository.save(token);
@@ -220,7 +224,8 @@ public class AuthService {
         RefreshTokenEntity refreshToken = new RefreshTokenEntity();
         refreshToken.setId(UUID.randomUUID());
         refreshToken.setUser(user);
-        refreshToken.setToken(refreshTokenValue);
+        // Guardamos apenas o hash; o valor cru so vai para o cliente na resposta.
+        refreshToken.setToken(hashRefreshToken(refreshTokenValue));
         refreshToken.setExpiresAt(OffsetDateTime.now().plusSeconds(appProperties.jwt().refreshTokenExpirationSeconds()));
         refreshToken.setRevoked(false);
         refreshTokenRepository.save(refreshToken);
@@ -247,6 +252,16 @@ public class AuthService {
         }
         if (!isPasswordStrongEnough(request.password())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A senha deve ter no mínimo 8 caracteres, com pelo menos uma letra e um número.");
+        }
+    }
+
+    private static String hashRefreshToken(String rawToken) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(rawToken.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 indisponivel para hash de refresh token.", exception);
         }
     }
 

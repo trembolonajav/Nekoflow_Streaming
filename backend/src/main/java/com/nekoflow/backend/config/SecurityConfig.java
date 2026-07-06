@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.Customizer;
@@ -18,6 +19,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import com.nekoflow.backend.security.ApiRateLimitFilter;
 import com.nekoflow.backend.security.JwtAuthenticationFilter;
 
 @Configuration
@@ -37,14 +39,25 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/google", "/api/v1/auth/refresh", "/api/v1/auth/logout").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/suggestions").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/worker/webhooks/releases").permitAll()
-                .requestMatchers(HttpMethod.GET, "/robots.txt", "/sitemap.xml").permitAll()
+                .requestMatchers(HttpMethod.GET, "/robots.txt", "/llms.txt", "/sitemap.xml", "/sitemap-*.xml").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/seo/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/home", "/api/v1/animes/**", "/api/v1/watch/**", "/api/v1/calendar", "/api/v1/episodes/*/comments").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/episodes/*/comments", "/api/v1/comments/*/replies").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
                 .requestMatchers("/api/v1/admin/**").hasAnyRole("ADMIN", "EDITOR", "MODERATOR")
                 .anyRequest().authenticated()
+            )
+            .exceptionHandling(handling -> handling
+                // Padroniza os codigos: sem token / token invalido -> 401;
+                // autenticado sem permissao -> 403 (AccessDeniedHandler padrao).
+                .authenticationEntryPoint((request, response, authException) -> {
+                    response.setStatus(HttpStatus.UNAUTHORIZED.value());
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"message\":\"Autenticacao necessaria.\"}");
+                })
             );
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(new ApiRateLimitFilter(), JwtAuthenticationFilter.class);
         return http.build();
     }
 

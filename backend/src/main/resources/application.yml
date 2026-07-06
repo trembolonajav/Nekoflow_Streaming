@@ -34,6 +34,10 @@ management:
 
 app:
   public-base-url: ${APP_PUBLIC_BASE_URL:https://nekoflow.com.br}
+  frontend:
+    # URL interna do frontend (nginx) para o backend buscar o shell da SPA no
+    # render de SEO. Deve apontar para o bypass /__spa_index.html, nunca para "/".
+    internal-url: ${APP_FRONTEND_INTERNAL_URL:http://frontend}
   cors:
     allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173}
   jwt:
@@ -60,3 +64,9 @@ app:
       client-id: ${APP_GOOGLE_CLIENT_ID:}
   worker:
     webhook-secret: ${APP_WORKER_WEBHOOK_SECRET:}
+    rss-poll:
+      # Worker automatico DESLIGADO por padrao: so caca sozinho quando habilitado.
+      enabled: ${APP_WORKER_RSS_POLL_ENABLED:false}
+      interval-ms: ${APP_WORKER_RSS_POLL_INTERVAL_MS:1800000}
+      initial-delay-ms: ${APP_WORKER_RSS_POLL_INITIAL_DELAY_MS:60000}
+      lease-seconds: ${APP_WORKER_RSS_POLL_LEASE_SECONDS:600}

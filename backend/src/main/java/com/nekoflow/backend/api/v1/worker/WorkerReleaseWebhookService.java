@@ -50,6 +50,7 @@ public class WorkerReleaseWebhookService {
     private final AnimeRepository animeRepository;
     private final EpisodeRepository episodeRepository;
     private final EpisodeVideoSourceRepository episodeVideoSourceRepository;
+    private final com.nekoflow.backend.api.v1.catalog.CatalogCache catalogCache;
 
     public WorkerReleaseWebhookService(
         ObjectMapper objectMapper,
@@ -57,7 +58,8 @@ public class WorkerReleaseWebhookService {
         RestTemplate restTemplate,
         AnimeRepository animeRepository,
         EpisodeRepository episodeRepository,
-        EpisodeVideoSourceRepository episodeVideoSourceRepository
+        EpisodeVideoSourceRepository episodeVideoSourceRepository,
+        com.nekoflow.backend.api.v1.catalog.CatalogCache catalogCache
     ) {
         this.objectMapper = objectMapper;
         this.appProperties = appProperties;
@@ -65,12 +67,26 @@ public class WorkerReleaseWebhookService {
         this.animeRepository = animeRepository;
         this.episodeRepository = episodeRepository;
         this.episodeVideoSourceRepository = episodeVideoSourceRepository;
+        this.catalogCache = catalogCache;
     }
 
     @Transactional
     public WorkerReleaseResponse publishRelease(String rawBody, HttpHeaders headers) {
         verifySignature(rawBody, headers);
+        return process(rawBody);
+    }
 
+    /**
+     * Publicacao interna (botao "publicar" do admin), executada dentro do proprio
+     * backend. Nao passa por verificacao de assinatura porque a origem e confiavel
+     * (chamada in-process) e nao ha corpo assinado para validar.
+     */
+    @Transactional
+    public WorkerReleaseResponse publishReleaseTrusted(String rawBody) {
+        return process(rawBody);
+    }
+
+    private WorkerReleaseResponse process(String rawBody) {
         JsonNode root = parseBody(rawBody);
         if (!EVENT_RELEASE_PUBLISH.equals(text(root, "event"))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Evento de worker invalido.");
@@ -90,6 +106,9 @@ public class WorkerReleaseWebhookService {
 
         AnimeResult animeResult = findOrCreateAnime(anilistId, title, root.path("anilist"));
         EpisodeResult episodeResult = upsertEpisode(animeResult.anime(), root, episodeNumber, seekVideoId);
+
+        // Conteudo novo publicado: invalida os caches publicos (home/catalogo/sitemap).
+        catalogCache.invalidateAll();
 
         return new WorkerReleaseResponse(
             true,
@@ -260,8 +279,13 @@ public class WorkerReleaseWebhookService {
 
     private void verifySignature(String rawBody, HttpHeaders headers) {
         String secret = appProperties.worker() == null ? null : appProperties.worker().webhookSecret();
+        // Fail closed: sem secret configurado, o endpoint publico nao aceita releases.
+        // A publicacao interna do admin usa publishReleaseTrusted e nao cai aqui.
         if (isBlank(secret)) {
-            return;
+            throw new ResponseStatusException(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Webhook do worker nao esta configurado (APP_WORKER_WEBHOOK_SECRET ausente)."
+            );
         }
 
         String received = headers.getFirst("X-Nekoflow-Signature");

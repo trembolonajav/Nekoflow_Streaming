@@ -20,14 +20,16 @@ import com.nekoflow.backend.api.v1.common.dto.ApiPageResponse;
 public class PublicCatalogController {
 
     private final CatalogQueryService catalogQueryService;
+    private final CatalogCache catalogCache;
 
-    public PublicCatalogController(CatalogQueryService catalogQueryService) {
+    public PublicCatalogController(CatalogQueryService catalogQueryService, CatalogCache catalogCache) {
         this.catalogQueryService = catalogQueryService;
+        this.catalogCache = catalogCache;
     }
 
     @GetMapping("/home")
     public ResponseEntity<HomeResponse> home() {
-        return ResponseEntity.ok(catalogQueryService.getHome());
+        return ResponseEntity.ok(catalogCache.home("home", catalogQueryService::getHome));
     }
 
     @GetMapping("/animes")
@@ -36,8 +38,12 @@ public class PublicCatalogController {
         @RequestParam(defaultValue = "20") int size,
         @RequestParam(defaultValue = "") String q
     ) {
-        List<AnimeSummaryResponse> items = catalogQueryService.listPublishedAnimes(q, size);
-        return ResponseEntity.ok(new ApiPageResponse<>(items, items.size(), page, size));
+        String key = q + "|" + page + "|" + size;
+        ApiPageResponse<AnimeSummaryResponse> response = catalogCache.catalog(key, () -> {
+            List<AnimeSummaryResponse> items = catalogQueryService.listPublishedAnimes(q, page, size);
+            return new ApiPageResponse<>(items, items.size(), page, size);
+        });
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/animes/{slug}")

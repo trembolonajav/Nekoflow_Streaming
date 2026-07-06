@@ -28,6 +28,13 @@ const AdminSuggestions = lazy(() => import("./pages/admin/AdminSugestoes"));
 const AdminHome = lazy(() => import("./pages/admin/AdminHome"));
 const AdminCalendario = lazy(() => import("./pages/admin/AdminCalendario"));
 
+const AdminWorkerDashboard = lazy(() => import("./pages/admin/worker/AdminWorkerDashboard"));
+const AdminWorkerSync = lazy(() => import("./pages/admin/worker/AdminWorkerSync"));
+const AdminWorkerImport = lazy(() => import("./pages/admin/worker/AdminWorkerImport"));
+const AdminWorkerQueue = lazy(() => import("./pages/admin/worker/AdminWorkerQueue"));
+const AdminWorkerSources = lazy(() => import("./pages/admin/worker/AdminWorkerSources"));
+const AdminWorkerLogs = lazy(() => import("./pages/admin/worker/AdminWorkerLogs"));
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -59,6 +66,13 @@ const App = () => (
                 <Route path="episodios" element={<AdminEpisodes />} />
                 <Route path="comentarios" element={<AdminComments />} />
                 <Route path="sugestoes" element={<AdminSuggestions />} />
+
+                <Route path="worker" element={<AdminWorkerDashboard />} />
+                <Route path="worker/sync" element={<AdminWorkerSync />} />
+                <Route path="worker/import" element={<AdminWorkerImport />} />
+                <Route path="worker/queue" element={<AdminWorkerQueue />} />
+                <Route path="worker/sources" element={<AdminWorkerSources />} />
+                <Route path="worker/logs" element={<AdminWorkerLogs />} />
               </Route>
 
               <Route path="*" element={<NotFound />} />

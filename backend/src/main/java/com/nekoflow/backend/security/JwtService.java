@@ -65,9 +65,15 @@ public class JwtService {
 
     private byte[] normalizedSecret() {
         String secret = appProperties.jwt().secret();
-        if (secret.length() < 32) {
-            secret = secret + "0123456789abcdefghijklmnopqrstuv";
+        byte[] bytes = secret == null ? new byte[0] : secret.getBytes(StandardCharsets.UTF_8);
+        // HMAC-SHA256 exige chave de pelo menos 256 bits (32 bytes). Em vez de
+        // completar um segredo curto com um padding fixo e previsivel, rejeitamos:
+        // segredo fraco deve ser corrigido na configuracao, nao mascarado.
+        if (bytes.length < 32) {
+            throw new IllegalStateException(
+                "APP_JWT_SECRET deve ter no minimo 32 caracteres (256 bits) para assinar tokens com HMAC-SHA256."
+            );
         }
-        return secret.getBytes(StandardCharsets.UTF_8);
+        return bytes;
     }
 }

@@ -11,6 +11,8 @@ import com.nekoflow.backend.domain.enums.AnimeStatus;
 import com.nekoflow.backend.domain.enums.AnimeType;
 import com.nekoflow.backend.domain.enums.VisibilityStatus;
 
+import com.nekoflow.backend.domain.SearchText;
+
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -18,6 +20,8 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 @Entity
@@ -81,8 +85,33 @@ public class AnimeEntity {
     @Column(name = "published_at")
     private OffsetDateTime publishedAt;
 
+    // Texto normalizado (minusculo/sem acento) para busca no banco. Mantido pelo
+    // callback abaixo em todos os caminhos de escrita (worker, admin, conversao).
+    @Column(name = "search_index", columnDefinition = "text")
+    private String searchIndex;
+
     @OneToMany(mappedBy = "anime", cascade = CascadeType.ALL)
     private List<EpisodeEntity> episodes = new ArrayList<>();
+
+    @PrePersist
+    @PreUpdate
+    private void refreshSearchIndex() {
+        this.searchIndex = SearchText.normalize(String.join(" ",
+            nullToBlank(titleDisplay),
+            nullToBlank(titleRomaji),
+            nullToBlank(titleEnglish),
+            nullToBlank(titleNative),
+            nullToBlank(slug),
+            nullToBlank(studio),
+            nullToBlank(seasonLabel),
+            nullToBlank(genres),
+            year == null ? "" : year.toString()
+        ));
+    }
+
+    private static String nullToBlank(String value) {
+        return value == null ? "" : value;
+    }
 
     public UUID getId() {
         return id;
