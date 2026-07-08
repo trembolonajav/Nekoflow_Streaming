@@ -99,14 +99,20 @@ export const workerApi = {
     request<Record<string, unknown>>("/admin/worker/queue/parse", { method: "POST", body }),
   approve: (id: string) =>
     request<Record<string, unknown>>(`/admin/worker/queue/${id}/approve`, { method: "POST" }),
-  approveMany: (ids: string[]) =>
-    request<Record<string, unknown>>("/admin/worker/queue/approve", { method: "POST", body: { ids } }),
+  approveMany: (body: { ids?: string[]; allApprovable?: boolean; search?: string } | string[]) =>
+    request<Record<string, unknown>>("/admin/worker/queue/approve", {
+      method: "POST",
+      body: Array.isArray(body) ? { ids: body } : body,
+    }),
   updateQueueItem: (id: string, body: Record<string, unknown>) =>
     request<Record<string, unknown>>(`/admin/worker/queue/${id}`, { method: "PUT", body }),
   publish: (id: string) =>
     request<Record<string, unknown>>(`/admin/worker/queue/${id}/publish`, { method: "POST" }),
-  publishMany: (ids?: string[]) =>
-    request<Record<string, unknown>>("/admin/worker/queue/publish", { method: "POST", body: ids ? { ids } : {} }),
+  publishMany: (body?: { ids?: string[]; allApprovable?: boolean; search?: string } | string[]) =>
+    request<Record<string, unknown>>("/admin/worker/queue/publish", {
+      method: "POST",
+      body: Array.isArray(body) ? { ids: body } : body ?? {},
+    }),
   logs: () => request<Record<string, unknown>>("/admin/worker/logs"),
   sources: () => request<unknown[]>("/admin/worker/sources"),
   createSource: (body: Record<string, unknown>) =>

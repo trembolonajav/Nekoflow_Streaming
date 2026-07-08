@@ -91,8 +91,11 @@ export default function AdminWorkerQueue() {
   const [running, setRunning] = useState<null | "parse" | "retry" | "publish" | "bulk">(null);
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [allApprovableSelected, setAllApprovableSelected] = useState(false);
   const [fixingRow, setFixingRow] = useState<QueueRow | null>(null);
+  const [bulkFixing, setBulkFixing] = useState(false);
   const [applyingFix, setApplyingFix] = useState(false);
+  const [fixProgress, setFixProgress] = useState<{ done: number; total: number } | null>(null);
 
   async function loadCounts() {
     const data = await workerApi.queue({ status: filter, search, page, size: PAGE_SIZE });
@@ -118,6 +121,7 @@ export default function AdminWorkerQueue() {
 
   useEffect(() => {
     setSelected(new Set());
+    setAllApprovableSelected(false);
     loadRows();
   }, [filter, page]);
 
@@ -187,17 +191,28 @@ export default function AdminWorkerQueue() {
 
   // Aprova + publica todos os selecionados de uma vez.
   async function bulkApprovePublish() {
-    const ids = [...selected];
-    if (ids.length === 0) return;
+    const ids = selectedApprovableIds;
+    if (!allApprovableSelected && ids.length === 0) return;
     setRunning("bulk");
     try {
-      await workerApi.approveMany(ids);
-      const data = (await workerApi.publishMany(ids)) as PublishResponse;
+      if (allApprovableSelected) {
+        await workerApi.approveMany({ allApprovable: true });
+      } else {
+        await workerApi.approveMany(ids);
+      }
+      const data = (await workerApi.publishMany(allApprovableSelected ? { allApprovable: true } : ids)) as PublishResponse;
       const published = data?.published ?? 0;
-      const failed = (data?.total ?? ids.length) - published;
-      if (failed > 0) toast.warning(`Publicados ${published}/${ids.length} · ${failed} falharam`);
-      else toast.success(`Publicados ${published}/${ids.length}`);
+      const total = data?.total ?? (allApprovableSelected ? approvableTotal : ids.length);
+      const failed = total - published;
+      if (failed > 0) {
+        toast.warning(`Publicados ${published}/${total} - ${failed} falharam`);
+        setSelected(new Set());
+        setAllApprovableSelected(false);
+        return;
+      }
+      toast.success(`Publicados ${published}/${total}`);
       setSelected(new Set());
+      setAllApprovableSelected(false);
     } catch (e) {
       toast.error("Erro no lote: " + (e instanceof Error ? e.message : String(e)));
     } finally {
@@ -207,22 +222,27 @@ export default function AdminWorkerQueue() {
     }
   }
 
+  // Payload do match manual: usa o anime escolhido, mantendo episódio/duração do item.
+  function matchPayload(row: QueueRow, pick: AdminAniListSearchDto) {
+    return {
+      parsed_title: pick.titleRomaji,
+      parsed_season: row.parsed_season,
+      parsed_episode: row.parsed_episode,
+      anilist_id: pick.id,
+      matched_anime_id: null,
+      match_confidence: 1,
+      thumbnail_url: pick.coverImage ?? row.thumbnail_url,
+      duration_seconds: row.duration_seconds,
+      status: "matched",
+      status_reason: null,
+    };
+  }
+
   // Aplica um match escolhido manualmente no AniList a um item em review.
   async function applyManualMatch(row: QueueRow, pick: AdminAniListSearchDto) {
     setApplyingFix(true);
     try {
-      await workerApi.updateQueueItem(row.id, {
-        parsed_title: pick.titleRomaji,
-        parsed_season: row.parsed_season,
-        parsed_episode: row.parsed_episode,
-        anilist_id: pick.id,
-        matched_anime_id: null,
-        match_confidence: 1,
-        thumbnail_url: pick.coverImage ?? row.thumbnail_url,
-        duration_seconds: row.duration_seconds,
-        status: "matched",
-        status_reason: null,
-      });
+      await workerApi.updateQueueItem(row.id, matchPayload(row, pick));
       toast.success(`Match corrigido: ${pick.titleRomaji} — agora é só aprovar`);
       setFixingRow(null);
       loadCounts();
@@ -234,6 +254,36 @@ export default function AdminWorkerQueue() {
     }
   }
 
+  // Aplica o mesmo match a todos os itens selecionados (episódio de cada um é mantido).
+  async function applyManualMatchBulk(pick: AdminAniListSearchDto) {
+    const targets = selectedFixableRows;
+    if (targets.length === 0) return;
+    setApplyingFix(true);
+    setFixProgress({ done: 0, total: targets.length });
+    let ok = 0;
+    const failed: string[] = [];
+    for (const row of targets) {
+      try {
+        await workerApi.updateQueueItem(row.id, matchPayload(row, pick));
+        ok++;
+      } catch {
+        failed.push(row.parsed_title ?? row.seek_video_id ?? row.id);
+      }
+      setFixProgress({ done: ok + failed.length, total: targets.length });
+    }
+    setApplyingFix(false);
+    setFixProgress(null);
+    setBulkFixing(false);
+    setSelected(new Set());
+    if (failed.length === 0) {
+      toast.success(`Match corrigido em ${ok} item(ns): ${pick.titleRomaji} — agora é só aprovar`);
+    } else {
+      toast.warning(`Match corrigido em ${ok}/${targets.length} — ${failed.length} falharam`);
+    }
+    loadCounts();
+    loadRows();
+  }
+
   const filtered = useMemo(() => {
     if (!search.trim()) return rows;
     return rows.filter((r) => (r.parsed_title ?? "").toLowerCase().includes(search.toLowerCase()));
@@ -241,9 +291,17 @@ export default function AdminWorkerQueue() {
 
   const selectableRows = useMemo(() => filtered.filter((r) => SELECTABLE.has(r.status)), [filtered]);
   const matchedRows = useMemo(() => filtered.filter((r) => r.status === "matched"), [filtered]);
-  const allSelectableSelected = selectableRows.length > 0 && selectableRows.every((r) => selected.has(r.id));
+  const reviewRows = useMemo(() => filtered.filter((r) => r.status === "needs_review" || r.status === "anilist_unavailable"), [filtered]);
+  const checkableRows = useMemo(() => filtered.filter((r) => SELECTABLE.has(r.status) || FIXABLE.has(r.status)), [filtered]);
+  const selectedFixableRows = useMemo(() => filtered.filter((r) => selected.has(r.id) && FIXABLE.has(r.status)), [filtered, selected]);
+  const selectedApprovableIds = useMemo(() => filtered.filter((r) => selected.has(r.id) && SELECTABLE.has(r.status)).map((r) => r.id), [filtered, selected]);
+  const approvableTotal = counts.matched + counts.approved + counts.failed;
+  const selectedCount = allApprovableSelected ? approvableTotal : selected.size;
+  const selectedApprovableCount = allApprovableSelected ? approvableTotal : selectedApprovableIds.length;
+  const allSelectableSelected = allApprovableSelected || (checkableRows.length > 0 && checkableRows.every((r) => selected.has(r.id)));
 
   function toggle(id: string) {
+    setAllApprovableSelected(false);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -252,6 +310,7 @@ export default function AdminWorkerQueue() {
     });
   }
   function selectSet(rowsToSelect: QueueRow[]) {
+    setAllApprovableSelected(false);
     setSelected(new Set(rowsToSelect.map((r) => r.id)));
   }
 
@@ -328,21 +387,51 @@ export default function AdminWorkerQueue() {
         <button className="hover:text-foreground transition-colors" onClick={() => selectSet(matchedRows)} disabled={matchedRows.length === 0}>
           selecionar matched ({matchedRows.length})
         </button>
-        <span className="opacity-40">·</span>
-        <button className="hover:text-foreground transition-colors" onClick={() => selectSet(selectableRows)} disabled={selectableRows.length === 0}>
-          selecionar todos aprovaveis ({selectableRows.length})
+        <span className="opacity-40">-</span>
+        <button className="hover:text-foreground transition-colors" onClick={() => selectSet(reviewRows)} disabled={reviewRows.length === 0}>
+          selecionar review ({reviewRows.length})
         </button>
-        <span className="opacity-40">·</span>
-        <button className="hover:text-foreground transition-colors" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>
+        <span className="opacity-40">-</span>
+        <button className="hover:text-foreground transition-colors" onClick={() => selectSet(selectableRows)} disabled={selectableRows.length === 0}>
+          selecionar aprovaveis da pagina ({selectableRows.length})
+        </button>
+        <span className="opacity-40">-</span>
+        <button
+          className="hover:text-foreground transition-colors"
+          onClick={() => {
+            setSelected(new Set());
+            setAllApprovableSelected(true);
+          }}
+          disabled={approvableTotal === 0}
+        >
+          selecionar todos aprovaveis da fila ({approvableTotal})
+        </button>
+        <span className="opacity-40">-</span>
+        <button
+          className="hover:text-foreground transition-colors"
+          onClick={() => {
+            setSelected(new Set());
+            setAllApprovableSelected(false);
+          }}
+          disabled={selectedCount === 0}
+        >
           limpar seleção
         </button>
-        {selected.size > 0 && (
+        {selectedCount > 0 && (
           <div className="ml-auto flex items-center gap-2">
-            <span className="text-foreground">{selected.size} selecionado(s)</span>
-            <Button size="sm" onClick={bulkApprovePublish} disabled={running !== null}>
-              {running === "bulk" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-              Aprovar + publicar ({selected.size})
-            </Button>
+            <span className="text-foreground">{selectedCount} selecionado(s)</span>
+            {!allApprovableSelected && selectedFixableRows.length > 0 && (
+              <Button size="sm" variant="outline" onClick={() => setBulkFixing(true)} disabled={running !== null || applyingFix}>
+                <Pencil className="w-3.5 h-3.5" />
+                Corrigir match ({selectedFixableRows.length})
+              </Button>
+            )}
+            {selectedApprovableCount > 0 && (
+              <Button size="sm" onClick={bulkApprovePublish} disabled={running !== null}>
+                {running === "bulk" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                Aprovar + publicar ({selectedApprovableCount})
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -352,7 +441,13 @@ export default function AdminWorkerQueue() {
           <div>
             <Checkbox
               checked={allSelectableSelected}
-              onCheckedChange={(v) => (v ? selectSet(selectableRows) : setSelected(new Set()))}
+              onCheckedChange={(v) => {
+                if (v) selectSet(checkableRows);
+                else {
+                  setSelected(new Set());
+                  setAllApprovableSelected(false);
+                }
+              }}
               aria-label="Selecionar todos"
             />
           </div>
@@ -380,14 +475,15 @@ export default function AdminWorkerQueue() {
             const canPublish = r.status === "approved" || r.status === "publish_failed";
             const canSelect = SELECTABLE.has(r.status);
             const canFix = FIXABLE.has(r.status);
+            const canCheck = canSelect || canFix;
             return (
               <div
                 key={r.id}
-                className={cn(GRID, "px-4 py-3 border-b border-border last:border-0 items-center hover:bg-muted/20 transition-colors", selected.has(r.id) && "bg-primary/[0.06]")}
+                className={cn(GRID, "px-4 py-3 border-b border-border last:border-0 items-center hover:bg-muted/20 transition-colors", (selected.has(r.id) || (allApprovableSelected && canSelect)) && "bg-primary/[0.06]")}
               >
                 <div>
-                  {canSelect ? (
-                    <Checkbox checked={selected.has(r.id)} onCheckedChange={() => toggle(r.id)} aria-label="Selecionar item" />
+                  {canCheck ? (
+                    <Checkbox checked={(allApprovableSelected && canSelect) || selected.has(r.id)} onCheckedChange={() => toggle(r.id)} aria-label="Selecionar item" />
                   ) : null}
                 </div>
                 <div className="w-12 h-16 rounded bg-muted overflow-hidden border border-border">
@@ -456,13 +552,26 @@ export default function AdminWorkerQueue() {
         </div>
       </div>
 
-      {/* Modal de correção manual do match (busca AniList ao vivo) */}
-      <Dialog open={fixingRow !== null} onOpenChange={(o) => !o && setFixingRow(null)}>
+      {/* Modal de correção manual do match (busca AniList ao vivo) — individual ou em lote */}
+      <Dialog
+        open={fixingRow !== null || bulkFixing}
+        onOpenChange={(o) => {
+          if (!o && !applyingFix) {
+            setFixingRow(null);
+            setBulkFixing(false);
+          }
+        }}
+      >
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Corrigir match no AniList</DialogTitle>
+            <DialogTitle>{bulkFixing ? "Corrigir match em lote" : "Corrigir match no AniList"}</DialogTitle>
             <DialogDescription>
-              {fixingRow ? (
+              {bulkFixing ? (
+                <>
+                  <span className="text-foreground font-medium">{selectedFixableRows.length} item(ns) selecionado(s)</span>
+                  . Busque o anime correto e clique para vincular — o mesmo match será aplicado a todos, mantendo o episódio de cada um.
+                </>
+              ) : fixingRow ? (
                 <>
                   Item: <span className="text-foreground font-medium">{fixingRow.parsed_title ?? fixingRow.seek_video_id}</span>
                   {fixingRow.parsed_season != null && fixingRow.parsed_episode != null
@@ -475,10 +584,16 @@ export default function AdminWorkerQueue() {
           </DialogHeader>
           {applyingFix ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
-              <Loader2 className="w-5 h-5 animate-spin inline mr-2" /> aplicando…
+              <Loader2 className="w-5 h-5 animate-spin inline mr-2" />
+              aplicando…{fixProgress ? ` (${fixProgress.done}/${fixProgress.total})` : ""}
             </div>
           ) : (
-            <AniListSearchPanel onPick={(pick) => { if (fixingRow) applyManualMatch(fixingRow, pick); }} />
+            <AniListSearchPanel
+              onPick={(pick) => {
+                if (bulkFixing) applyManualMatchBulk(pick);
+                else if (fixingRow) applyManualMatch(fixingRow, pick);
+              }}
+            />
           )}
         </DialogContent>
       </Dialog>

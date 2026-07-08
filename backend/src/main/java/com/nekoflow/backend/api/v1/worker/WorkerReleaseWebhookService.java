@@ -100,7 +100,8 @@ public class WorkerReleaseWebhookService {
         if (isBlank(title)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Release sem titulo.");
         }
-        if (episodeNumber == null || episodeNumber < 1) {
+        // Episodio 0 e valido: fansubs numeram prologos/especiais como "00" (ex.: Erai-raws).
+        if (episodeNumber == null || episodeNumber < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Release sem numero de episodio valido.");
         }
 

@@ -209,7 +209,9 @@ public class AdminWorkerService {
 
     @Transactional
     public Map<String, Object> approveMany(Map<String, Object> body) {
-        List<String> ids = stringList(body.get("ids"));
+        List<String> ids = Boolean.TRUE.equals(body.get("allApprovable"))
+            ? bulkApprovableIds()
+            : stringList(body.get("ids"));
         String approver = currentApprover();
         int approved = 0;
         for (String id : ids) {
@@ -259,16 +261,17 @@ public class AdminWorkerService {
         return Map.of("ok", true, "item", findQueueRow(id));
     }
 
-    @Transactional
     public Map<String, Object> publishMany(Map<String, Object> body) {
-        List<String> ids = stringList(body.get("ids"));
-        if (ids.isEmpty()) {
-            ids = jdbc.queryForList("select id::text from release_queue where status = 'approved' order by updated_at desc limit 100", String.class);
-        }
+        List<String> ids = Boolean.TRUE.equals(body.get("allApprovable"))
+            ? jdbc.queryForList("select id::text from release_queue where status in ('approved','publish_failed') order by updated_at desc", String.class)
+            : stringList(body.get("ids"));
+        if (ids.isEmpty()) ids = jdbc.queryForList("select id::text from release_queue where status = 'approved' order by updated_at desc", String.class);
         return publish(ids);
     }
 
-    @Transactional
+    // NAO e @Transactional de proposito: cada item publica na sua propria transacao
+    // (via publishReleaseTrusted). Com transacao unica aqui, a falha de 1 item marca
+    // a transacao como rollback-only e o lote inteiro estoura no commit, desfazendo tudo.
     public Map<String, Object> publish(List<String> ids) {
         int published = 0;
         List<Map<String, Object>> results = new ArrayList<>();
@@ -305,9 +308,10 @@ public class AdminWorkerService {
                 published++;
                 results.add(Map.of("id", id, "ok", true));
             } catch (Exception exception) {
-                jdbc.update("update release_queue set status = 'publish_failed', status_reason = ?, updated_at = now() where id = ?::uuid", exception.getMessage(), id);
-                logWebhook(id, "/api/v1/worker/webhooks/releases", payload, 500, null, exception.getMessage());
-                results.add(Map.of("id", id, "ok", false, "error", exception.getMessage()));
+                String error = exception.getMessage() != null ? exception.getMessage() : exception.getClass().getSimpleName();
+                jdbc.update("update release_queue set status = 'publish_failed', status_reason = ?, updated_at = now() where id = ?::uuid", error, id);
+                logWebhook(id, "/api/v1/worker/webhooks/releases", payload, 500, null, error);
+                results.add(Map.of("id", id, "ok", false, "error", error));
             }
         }
         return Map.of("ok", true, "total", ids.size(), "published", published, "failed", ids.size() - published, "results", results);
@@ -1351,6 +1355,15 @@ public class AdminWorkerService {
 
     private Map<String, Object> findQueueRow(String id) {
         return jdbc.queryForMap("select * from release_queue where id = ?::uuid", id);
+    }
+
+    private List<String> bulkApprovableIds() {
+        return jdbc.queryForList("""
+            select id::text
+            from release_queue
+            where status in ('matched','approved','publish_failed')
+            order by updated_at desc
+            """, String.class);
     }
 
     private void logWebhook(String id, String endpoint, String requestBody, int status, String responseBody, String error) {
