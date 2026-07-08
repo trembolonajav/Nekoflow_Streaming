@@ -79,7 +79,7 @@ interface AuthState {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isReady: boolean;
-  signIn: (input: { email: string; password: string }) => Promise<AuthUser>;
+  signIn: (input: { email: string; password: string; remember?: boolean }) => Promise<AuthUser>;
   signUp: (input: { name: string; email: string; password: string; confirmPassword: string; acceptTerms: boolean }) => Promise<AuthUser>;
   signInWithGoogle: (input?: { acceptTerms?: boolean }) => Promise<AuthUser>;
   signOut: () => void;
@@ -115,7 +115,8 @@ function toAuthUser(input: { id: string; name: string; email: string; roles: str
 function loadSession(): StoredSession | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    // Sessao efemera desta aba (sessionStorage) tem precedencia sobre a persistente (localStorage).
+    const raw = window.sessionStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as StoredSession;
   } catch {
@@ -123,13 +124,24 @@ function loadSession(): StoredSession | null {
   }
 }
 
-function saveSession(session: StoredSession | null): void {
+// remember === true      -> localStorage   (sobrevive fechar o navegador)
+// remember === false     -> sessionStorage (some ao fechar a aba/navegador)
+// remember === undefined -> preserva onde a sessao ja esta (usado por refresh/hydrate)
+function saveSession(session: StoredSession | null, remember?: boolean): void {
   if (typeof window === "undefined") return;
-  if (session) {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-  } else {
+  if (!session) {
     window.localStorage.removeItem(STORAGE_KEY);
+    window.sessionStorage.removeItem(STORAGE_KEY);
+    return;
   }
+  let target: Storage;
+  if (remember === undefined) {
+    target = window.sessionStorage.getItem(STORAGE_KEY) ? window.sessionStorage : window.localStorage;
+  } else {
+    target = remember ? window.localStorage : window.sessionStorage;
+    (remember ? window.sessionStorage : window.localStorage).removeItem(STORAGE_KEY);
+  }
+  target.setItem(STORAGE_KEY, JSON.stringify(session));
 }
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -253,6 +265,11 @@ export async function refreshStoredSession(): Promise<string | null> {
     saveSession(next);
     return next.accessToken;
   } catch {
+    // Multi-aba: se outra aba ja renovou (refresh token diferente no storage), reaproveita.
+    const latest = loadSession();
+    if (latest?.refreshToken && latest.refreshToken !== stored.refreshToken) {
+      return latest.accessToken;
+    }
     saveSession(null);
     return null;
   }
@@ -262,9 +279,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<StoredSession | null>(null);
   const [isReady, setIsReady] = useState(false);
 
-  const persistSession = useCallback((next: StoredSession | null) => {
+  const persistSession = useCallback((next: StoredSession | null, remember?: boolean) => {
     setSession(next);
-    saveSession(next);
+    saveSession(next, remember);
   }, []);
 
   const refreshSession = useCallback(async (refreshToken: string) => {
@@ -307,10 +324,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           user: toAuthUser(me),
         });
       } catch {
+        if (!active) return;
         try {
-          if (!active) return;
           await refreshSession(stored.refreshToken);
         } catch {
+          if (!active) return;
+          // Multi-aba: outra aba pode ter rotacionado o refresh token e salvo uma sessao nova.
+          // Antes de deslogar, tenta adotar a sessao mais recente do storage.
+          const latest = loadSession();
+          if (latest && latest.refreshToken !== stored.refreshToken) {
+            try {
+              const me = await apiRequest<AuthMeResponse>("/auth/me", {
+                headers: { Authorization: `Bearer ${latest.accessToken}` },
+              });
+              if (!active) return;
+              persistSession({ ...latest, user: toAuthUser(me) });
+              return;
+            } catch {
+              // sessao mais recente tambem invalida -> desloga abaixo
+            }
+          }
           if (!active) return;
           persistSession(null);
         }
@@ -334,7 +367,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  const signIn = useCallback(async ({ email, password }: { email: string; password: string }) => {
+  const signIn = useCallback(async ({ email, password, remember = true }: { email: string; password: string; remember?: boolean }) => {
     const payload = await apiRequest<TokenResponse>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
@@ -350,7 +383,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         provider: payload.provider,
       }),
     };
-    persistSession(next);
+    persistSession(next, remember);
     return next.user;
   }, [persistSession]);
 

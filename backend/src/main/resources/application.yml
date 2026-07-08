@@ -15,6 +15,10 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # A producao tem uma V16 propria (create_worker_catalog_jobs) que nunca foi
+    # para o main. Toleramos migrations aplicadas no banco mas ausentes do codigo
+    # para o Flyway nao falhar por causa dela. crawl_jobs e (re)garantida na V21.
+    ignore-migration-patterns: "*:missing"
   jackson:
     time-zone: UTC
 

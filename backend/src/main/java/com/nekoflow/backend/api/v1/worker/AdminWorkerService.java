@@ -33,6 +33,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nekoflow.backend.config.AppProperties;
+import com.nekoflow.backend.domain.SearchText;
 import com.nekoflow.backend.security.AppUserPrincipal;
 
 @Service
@@ -46,7 +47,7 @@ public class AdminWorkerService {
     private static final int CATALOG_DRAIN_BATCH_SIZE = 3;
     private static final int CATALOG_DRAIN_DELAY_SECONDS = 60;
     private static final int CATALOG_DRAIN_MAX_ATTEMPTS = 200;
-    private static final int RSS_POLL_MAX_PER_SOURCE = 50;
+    private static final int RSS_POLL_MAX_PER_SOURCE = 10;
     private static final int MAX_CONSECUTIVE_SEEK_FAILURES = 5;
     private static final long CATALOG_MAX_TORRENT_BYTES = 3L * 1024L * 1024L * 1024L;
 
@@ -105,7 +106,7 @@ public class AdminWorkerService {
 
         while (page <= 200) {
             try {
-                URI uri = URI.create(SEEK_BASE + "/api/v1/video/manage?page=" + page + "&perPage=" + SEEK_PAGE_SIZE);
+                URI uri = URI.create(resolveSeekEndpoint() + "/api/v1/video/manage?page=" + page + "&perPage=" + SEEK_PAGE_SIZE);
                 Map<String, Object> response = seekExchange(uri.toString(), new ParameterizedTypeReference<>() {}, true);
                 Map<?, ?> metadata = response.get("metadata") instanceof Map<?, ?> m ? m : Map.of();
                 List<?> data = response.get("data") instanceof List<?> list ? list : List.of();
@@ -372,6 +373,12 @@ public class AdminWorkerService {
         }
 
         String folderId = string(findUploadedFolder().get("id"));
+        Map<String, Object> seekSync = Map.of("ok", false, "skipped", true);
+        try {
+            seekSync = syncSeek();
+        } catch (Exception exception) {
+            seekSync = Map.of("ok", false, "error", truncate(exception.getMessage(), 180));
+        }
         List<Map<String, Object>> summary = new ArrayList<>();
         int totalNew = 0;
         for (Map<String, Object> source : sources) {
@@ -379,7 +386,7 @@ public class AdminWorkerService {
             totalNew += (int) result.getOrDefault("new", 0);
             summary.add(result);
         }
-        return Map.of("ok", true, "sources", sources.size(), "new", totalNew, "summary", summary);
+        return Map.of("ok", true, "sources", sources.size(), "new", totalNew, "seek_sync", seekSync, "summary", summary);
     }
 
     private Map<String, Object> pollSingleSource(Map<String, Object> source, String folderId) {
@@ -389,6 +396,7 @@ public class AdminWorkerService {
         int fetched = 0;
         int filtered = 0;
         int duplicate = 0;
+        int existing = 0;
         int added = 0;
         int failed = 0;
         int consecutiveFailures = 0;
@@ -396,7 +404,7 @@ public class AdminWorkerService {
         try {
             String group = string(source.get("release_group_filter"));
             List<String> qualityTokens = filterTokens(string(source.get("quality_filter")));
-            List<RssFeedParser.RssItem> items = RssFeedParser.parse(fetchText(string(source.get("url"))));
+            List<RssFeedParser.RssItem> items = RssFeedParser.parse(fetchText(resolveRssFeedUrl(string(source.get("url")))));
             fetched = items.size();
             for (RssFeedParser.RssItem rss : items) {
                 if (added >= RSS_POLL_MAX_PER_SOURCE) break;
@@ -408,14 +416,16 @@ public class AdminWorkerService {
                     duplicate++;
                     continue;
                 }
+                ParsedRelease parsed = parseFilename(rss.title());
+                if (releaseAlreadyExists(parsed)) {
+                    markSeenRelease(rss.infohash(), rss.guid(), string(source.get("id")), rss.title());
+                    existing++;
+                    continue;
+                }
                 String magnet = rss.magnet() != null ? rss.magnet() : "magnet:?xt=urn:btih:" + rss.infohash();
                 try {
                     Map<String, Object> task = createSeekAdvancedUpload(new NyaaItem(rss.title(), rss.infohash(), magnet, null, "", 0L), folderId);
-                    jdbc.update("""
-                        insert into seen_releases (infohash, guid, source_id, release_name)
-                        values (?, ?, ?::uuid, ?)
-                        on conflict (infohash) do nothing
-                        """, rss.infohash(), firstNonBlank(string(task.get("id")), rss.guid()), string(source.get("id")), rss.title());
+                    markSeenRelease(rss.infohash(), firstNonBlank(string(task.get("id")), rss.guid()), string(source.get("id")), rss.title());
                     added++;
                     consecutiveFailures = 0;
                     sleepQuietly(200);
@@ -438,6 +448,7 @@ public class AdminWorkerService {
         item.put("new", added);
         item.put("filtered", filtered);
         item.put("duplicate", duplicate);
+        item.put("existing", existing);
         item.put("failed", failed);
         if (error != null) {
             item.put("error", error);
@@ -445,6 +456,83 @@ public class AdminWorkerService {
         jdbc.update("update rss_sources set last_polled_at = now(), last_poll_items = ?, last_poll_error = ? where id = ?",
             added, error, source.get("id"));
         return item;
+    }
+
+    private boolean releaseAlreadyExists(ParsedRelease parsed) {
+        if (parsed == null || parsed.title() == null || parsed.episode() == null) {
+            return false;
+        }
+        return existsInSeekCache(parsed) || existsInReleaseQueue(parsed) || existsInCatalog(parsed);
+    }
+
+    private boolean existsInSeekCache(ParsedRelease wanted) {
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            select filename, title
+            from seek_videos
+            where lower(coalesce(filename, title, '')) like ?
+            limit 500
+            """, "%" + wanted.episode() + "%");
+        if (rows == null) {
+            return false;
+        }
+        for (Map<String, Object> row : rows) {
+            ParsedRelease current = parseFilename(firstNonBlank(string(row.get("filename")), string(row.get("title"))));
+            if (sameRelease(wanted, current)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean existsInReleaseQueue(ParsedRelease parsed) {
+        Integer count = jdbc.queryForObject("""
+            select count(*)
+            from release_queue
+            where parsed_episode = ?
+              and status <> 'publish_failed'
+              and lower(regexp_replace(coalesce(parsed_title, ''), '[^a-zA-Z0-9]+', ' ', 'g')) = ?
+            """, Integer.class, parsed.episode(), SearchText.normalize(parsed.title()));
+        return count != null && count > 0;
+    }
+
+    private boolean existsInCatalog(ParsedRelease parsed) {
+        Integer count = jdbc.queryForObject("""
+            select count(*)
+            from episodes e
+            join anime a on a.id = e.anime_id
+            where e.number = ?
+              and e.status = 'PUBLISHED'
+              and (
+                a.search_index = ?
+                or lower(regexp_replace(coalesce(a.title_display, ''), '[^a-zA-Z0-9]+', ' ', 'g')) = ?
+                or lower(regexp_replace(coalesce(a.title_romaji, ''), '[^a-zA-Z0-9]+', ' ', 'g')) = ?
+                or lower(regexp_replace(coalesce(a.title_english, ''), '[^a-zA-Z0-9]+', ' ', 'g')) = ?
+              )
+            """,
+            Integer.class,
+            parsed.episode(),
+            SearchText.normalize(parsed.title()),
+            SearchText.normalize(parsed.title()),
+            SearchText.normalize(parsed.title()),
+            SearchText.normalize(parsed.title())
+        );
+        return count != null && count > 0;
+    }
+
+    private boolean sameRelease(ParsedRelease wanted, ParsedRelease current) {
+        return wanted != null
+            && current != null
+            && wanted.episode() != null
+            && wanted.episode().equals(current.episode())
+            && Objects.equals(SearchText.normalize(wanted.title()), SearchText.normalize(current.title()));
+    }
+
+    private void markSeenRelease(String infohash, String guid, String sourceId, String title) {
+        jdbc.update("""
+            insert into seen_releases (infohash, guid, source_id, release_name)
+            values (?, ?, ?::uuid, ?)
+            on conflict (infohash) do nothing
+            """, infohash, guid, sourceId, title);
     }
 
     public Map<String, Object> catalogJobs() {
@@ -731,6 +819,19 @@ public class AdminWorkerService {
         headers.setAccept(List.of(MediaType.TEXT_HTML, MediaType.APPLICATION_XHTML_XML, MediaType.ALL));
         headers.set("User-Agent", "nekoflow-worker/0.1 (+catalog)");
         return restTemplate.exchange(URI.create(url), HttpMethod.GET, new HttpEntity<>(headers), String.class).getBody();
+    }
+
+    private String resolveRssFeedUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return rawUrl;
+        }
+        String url = rawUrl.trim();
+        String lower = url.toLowerCase();
+        if (!lower.contains("nyaa.si") || lower.contains("page=rss")) {
+            return url;
+        }
+        String separator = url.contains("?") ? (url.endsWith("?") || url.endsWith("&") ? "" : "&") : "?";
+        return url + separator + "page=rss";
     }
 
     private String nyaaPageUrl(String rawUrl, int page) {
@@ -1210,7 +1311,7 @@ public class AdminWorkerService {
     private BigDecimal confidence(String parsedTitle, JsonNode media) {
         String p = normalize(parsedTitle);
         double best = 0;
-        for (String candidate : List.of(text(media.path("title"), "romaji"), text(media.path("title"), "english"), text(media.path("title"), "native"))) {
+        for (String candidate : java.util.Arrays.asList(text(media.path("title"), "romaji"), text(media.path("title"), "english"), text(media.path("title"), "native"))) {
             if (candidate == null) continue;
             String c = normalize(candidate);
             if (c.equals(p)) best = Math.max(best, 1);

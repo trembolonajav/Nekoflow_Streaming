@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock, Inbox, Loader2, RefreshCw, AlertTriangle, WifiOff, Search, Play, Send, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Inbox, Loader2, RefreshCw, AlertTriangle, WifiOff, Search, Play, Send, XCircle, Pencil } from "lucide-react";
 import { StatCard } from "@/components/admin/WorkerStatCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { AniListSearchPanel } from "@/components/admin/AniListSearchPanel";
+import type { AdminAniListSearchDto } from "@/lib/backend-api";
 import { workerApi } from "@/lib/worker-api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -44,6 +54,11 @@ const FILTERS = [
 
 const PAGE_SIZE = 30;
 
+// Linhas que podem ser aprovadas+publicadas em lote (match confiável ou ja aprovadas).
+const SELECTABLE = new Set(["matched", "approved", "publish_failed"]);
+// Linhas cujo match pode ser corrigido manualmente.
+const FIXABLE = new Set(["needs_review", "anilist_unavailable", "publish_failed", "matched", "pending"]);
+
 interface PublishResult {
   ok?: boolean;
   status?: number | string;
@@ -56,6 +71,8 @@ interface PublishResponse {
   published?: number;
   total?: number;
 }
+
+const GRID = "grid grid-cols-[36px_56px_1fr_110px_70px_120px_180px] gap-3";
 
 function fmtDuration(sec: number | null): string {
   if (!sec) return "—";
@@ -71,8 +88,11 @@ export default function AdminWorkerQueue() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [running, setRunning] = useState<null | "parse" | "retry" | "publish">(null);
+  const [running, setRunning] = useState<null | "parse" | "retry" | "publish" | "bulk">(null);
   const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [fixingRow, setFixingRow] = useState<QueueRow | null>(null);
+  const [applyingFix, setApplyingFix] = useState(false);
 
   async function loadCounts() {
     const data = await workerApi.queue({ status: filter, search, page, size: PAGE_SIZE });
@@ -97,6 +117,7 @@ export default function AdminWorkerQueue() {
   }, []);
 
   useEffect(() => {
+    setSelected(new Set());
     loadRows();
   }, [filter, page]);
 
@@ -164,10 +185,75 @@ export default function AdminWorkerQueue() {
     }
   }
 
+  // Aprova + publica todos os selecionados de uma vez.
+  async function bulkApprovePublish() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    setRunning("bulk");
+    try {
+      await workerApi.approveMany(ids);
+      const data = (await workerApi.publishMany(ids)) as PublishResponse;
+      const published = data?.published ?? 0;
+      const failed = (data?.total ?? ids.length) - published;
+      if (failed > 0) toast.warning(`Publicados ${published}/${ids.length} · ${failed} falharam`);
+      else toast.success(`Publicados ${published}/${ids.length}`);
+      setSelected(new Set());
+    } catch (e) {
+      toast.error("Erro no lote: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setRunning(null);
+      loadCounts();
+      loadRows();
+    }
+  }
+
+  // Aplica um match escolhido manualmente no AniList a um item em review.
+  async function applyManualMatch(row: QueueRow, pick: AdminAniListSearchDto) {
+    setApplyingFix(true);
+    try {
+      await workerApi.updateQueueItem(row.id, {
+        parsed_title: pick.titleRomaji,
+        parsed_season: row.parsed_season,
+        parsed_episode: row.parsed_episode,
+        anilist_id: pick.id,
+        matched_anime_id: null,
+        match_confidence: 1,
+        thumbnail_url: pick.coverImage ?? row.thumbnail_url,
+        duration_seconds: row.duration_seconds,
+        status: "matched",
+        status_reason: null,
+      });
+      toast.success(`Match corrigido: ${pick.titleRomaji} — agora é só aprovar`);
+      setFixingRow(null);
+      loadCounts();
+      loadRows();
+    } catch (e) {
+      toast.error("Falha ao corrigir match: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setApplyingFix(false);
+    }
+  }
+
   const filtered = useMemo(() => {
     if (!search.trim()) return rows;
     return rows.filter((r) => (r.parsed_title ?? "").toLowerCase().includes(search.toLowerCase()));
   }, [rows, search]);
+
+  const selectableRows = useMemo(() => filtered.filter((r) => SELECTABLE.has(r.status)), [filtered]);
+  const matchedRows = useMemo(() => filtered.filter((r) => r.status === "matched"), [filtered]);
+  const allSelectableSelected = selectableRows.length > 0 && selectableRows.every((r) => selected.has(r.id));
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function selectSet(rowsToSelect: QueueRow[]) {
+    setSelected(new Set(rowsToSelect.map((r) => r.id)));
+  }
 
   return (
     <div className="max-w-[1400px]">
@@ -237,8 +323,39 @@ export default function AdminWorkerQueue() {
         </div>
       </div>
 
+      {/* Barra de seleção em lote */}
+      <div className="flex items-center gap-3 mb-3 text-xs mono text-muted-foreground flex-wrap">
+        <button className="hover:text-foreground transition-colors" onClick={() => selectSet(matchedRows)} disabled={matchedRows.length === 0}>
+          selecionar matched ({matchedRows.length})
+        </button>
+        <span className="opacity-40">·</span>
+        <button className="hover:text-foreground transition-colors" onClick={() => selectSet(selectableRows)} disabled={selectableRows.length === 0}>
+          selecionar todos aprovaveis ({selectableRows.length})
+        </button>
+        <span className="opacity-40">·</span>
+        <button className="hover:text-foreground transition-colors" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>
+          limpar seleção
+        </button>
+        {selected.size > 0 && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-foreground">{selected.size} selecionado(s)</span>
+            <Button size="sm" onClick={bulkApprovePublish} disabled={running !== null}>
+              {running === "bulk" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              Aprovar + publicar ({selected.size})
+            </Button>
+          </div>
+        )}
+      </div>
+
       <div className="border border-border rounded-lg bg-card overflow-hidden">
-        <div className="grid grid-cols-[64px_1fr_120px_90px_140px_140px] gap-3 px-4 py-2.5 border-b border-border bg-muted/30 mono text-[10px] uppercase tracking-widest text-muted-foreground">
+        <div className={cn(GRID, "px-4 py-2.5 border-b border-border bg-muted/30 mono text-[10px] uppercase tracking-widest text-muted-foreground items-center")}>
+          <div>
+            <Checkbox
+              checked={allSelectableSelected}
+              onCheckedChange={(v) => (v ? selectSet(selectableRows) : setSelected(new Set()))}
+              aria-label="Selecionar todos"
+            />
+          </div>
           <div>thumb</div>
           <div>release</div>
           <div>ep</div>
@@ -261,11 +378,18 @@ export default function AdminWorkerQueue() {
             const meta = STATUS_META[r.status] ?? STATUS_META.pending;
             const Icon = meta.icon;
             const canPublish = r.status === "approved" || r.status === "publish_failed";
+            const canSelect = SELECTABLE.has(r.status);
+            const canFix = FIXABLE.has(r.status);
             return (
               <div
                 key={r.id}
-                className="grid grid-cols-[64px_1fr_120px_90px_140px_140px] gap-3 px-4 py-3 border-b border-border last:border-0 items-center hover:bg-muted/20 transition-colors"
+                className={cn(GRID, "px-4 py-3 border-b border-border last:border-0 items-center hover:bg-muted/20 transition-colors", selected.has(r.id) && "bg-primary/[0.06]")}
               >
+                <div>
+                  {canSelect ? (
+                    <Checkbox checked={selected.has(r.id)} onCheckedChange={() => toggle(r.id)} aria-label="Selecionar item" />
+                  ) : null}
+                </div>
                 <div className="w-12 h-16 rounded bg-muted overflow-hidden border border-border">
                   {r.thumbnail_url ? (
                     <img src={r.thumbnail_url} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -293,7 +417,12 @@ export default function AdminWorkerQueue() {
                     {meta.label}
                   </span>
                 </div>
-                <div className="text-right">
+                <div className="flex items-center justify-end gap-1.5">
+                  {canFix ? (
+                    <Button size="sm" variant="ghost" className="h-8 px-2 text-muted-foreground hover:text-foreground" onClick={() => setFixingRow(r)} title="Corrigir match no AniList">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                  ) : null}
                   {r.status === "matched" ? (
                     <Button size="sm" variant="outline" onClick={() => approve(r.id)}>
                       Aprovar + publicar
@@ -303,9 +432,9 @@ export default function AdminWorkerQueue() {
                       {publishingId === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                       {r.status === "publish_failed" ? "Retry" : "Publicar"}
                     </Button>
-                  ) : (
+                  ) : !canFix ? (
                     <span className="mono text-[10px] text-muted-foreground">—</span>
-                  )}
+                  ) : null}
                 </div>
               </div>
             );
@@ -326,6 +455,33 @@ export default function AdminWorkerQueue() {
           </Button>
         </div>
       </div>
+
+      {/* Modal de correção manual do match (busca AniList ao vivo) */}
+      <Dialog open={fixingRow !== null} onOpenChange={(o) => !o && setFixingRow(null)}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Corrigir match no AniList</DialogTitle>
+            <DialogDescription>
+              {fixingRow ? (
+                <>
+                  Item: <span className="text-foreground font-medium">{fixingRow.parsed_title ?? fixingRow.seek_video_id}</span>
+                  {fixingRow.parsed_season != null && fixingRow.parsed_episode != null
+                    ? ` · S${String(fixingRow.parsed_season).padStart(2, "0")}E${String(fixingRow.parsed_episode).padStart(2, "0")}`
+                    : ""}
+                  . Busque o anime correto e clique para vincular — o episódio é mantido.
+                </>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          {applyingFix ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin inline mr-2" /> aplicando…
+            </div>
+          ) : (
+            <AniListSearchPanel onPick={(pick) => { if (fixingRow) applyManualMatch(fixingRow, pick); }} />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

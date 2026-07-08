@@ -121,7 +121,7 @@ function SignInForm({ onGoogleNeedsTerms }: { onGoogleNeedsTerms: () => void }) 
     if (loading) return;
     setLoading(true);
     try {
-      const user = await signIn({ email, password });
+      const user = await signIn({ email, password, remember });
       toast.success(`Bem-vindo(a) de volta, ${user.name}.`);
       navigate("/");
     } catch (err) {

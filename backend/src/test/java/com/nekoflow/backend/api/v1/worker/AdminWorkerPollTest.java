@@ -78,11 +78,20 @@ class AdminWorkerPollTest {
             .thenReturn(List.of(source(group, quality)));
     }
 
+    private void singleSource(String url, String group, String quality) {
+        when(jdbc.queryForList("select * from rss_sources where enabled = true"))
+            .thenReturn(List.of(source(url, group, quality)));
+    }
+
     private Map<String, Object> source(String group, String quality) {
+        return source("https://feed.test/rss", group, quality);
+    }
+
+    private Map<String, Object> source(String url, String group, String quality) {
         java.util.Map<String, Object> src = new java.util.HashMap<>();
         src.put("id", "11111111-1111-1111-1111-111111111111");
         src.put("name", "Test source");
-        src.put("url", "https://feed.test/rss");
+        src.put("url", url);
         src.put("release_group_filter", group);
         src.put("quality_filter", quality);
         return src;
@@ -92,6 +101,9 @@ class AdminWorkerPollTest {
         server.expect(requestTo("https://seek.test/api/v1/video/folder"))
             .andExpect(method(HttpMethod.GET))
             .andRespond(withSuccess(FOLDERS_JSON, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://seek.test/api/v1/video/manage?page=1&perPage=100"))
+            .andExpect(method(HttpMethod.GET))
+            .andRespond(withSuccess("{\"metadata\":{\"total\":0,\"maxPage\":1},\"data\":[]}", MediaType.APPLICATION_JSON));
     }
 
     private void expectFeed(String xml) {
@@ -129,6 +141,38 @@ class AdminWorkerPollTest {
     }
 
     @Test
+    void nyaaHtmlSearchUrlIsConvertedToRssFeedBeforeParsing() {
+        singleSource("https://nyaa.si/?f=0&c=0_0&q=%5BErai-raws%5D", null, "1080p");
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), any())).thenReturn(0);
+        expectFolderLookup();
+        server.expect(requestTo("https://nyaa.si/?f=0&c=0_0&q=%5BErai-raws%5D&page=rss"))
+            .andExpect(method(HttpMethod.GET))
+            .andRespond(withSuccess("""
+                <rss xmlns:nyaa="https://nyaa.si/xmlns/nyaa"><channel>
+                <item>
+                  <title>[Erai-raws] Alpha - 01 [1080p]</title>
+                  <guid>guid-1</guid>
+                  <nyaa:infoHash>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</nyaa:infoHash>
+                </item>
+                </channel></rss>
+                """, MediaType.TEXT_PLAIN));
+        server.expect(requestTo("https://seek.test/api/v1/video/advance-upload"))
+            .andExpect(method(HttpMethod.POST))
+            .andExpect(jsonPath("$.folderId").value("folder-1"))
+            .andExpect(jsonPath("$.name").value("[Erai-raws] Alpha - 01 [1080p]"))
+            .andRespond(withSuccess("{\"id\":\"task-1\"}", MediaType.APPLICATION_JSON));
+
+        Map<String, Object> result = service.pollSources(Map.of());
+
+        server.verify();
+        assertThat(result.get("new")).isEqualTo(1);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> summary = ((List<Map<String, Object>>) result.get("summary")).get(0);
+        assertThat(summary.get("fetched")).isEqualTo(1);
+        assertThat(summary.get("filtered")).isEqualTo(0);
+    }
+
+    @Test
     void duplicateItemIsNotReIngested() {
         singleSource(null, null);
         when(jdbc.queryForObject(anyString(), eq(Integer.class), any())).thenReturn(1); // ja visto
@@ -144,6 +188,29 @@ class AdminWorkerPollTest {
         Map<String, Object> summary = ((List<Map<String, Object>>) result.get("summary")).get(0);
         assertThat(summary.get("duplicate")).isEqualTo(1);
         verify(jdbc, never()).update(contains("insert into seen_releases"), any(), any(), any(), any());
+    }
+
+    @Test
+    void releaseAlreadyPresentInSeekCacheIsMarkedSeenAndNotDownloadedAgain() {
+        singleSource(null, null);
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), any())).thenReturn(0); // hash novo
+        when(jdbc.queryForList(contains("from seek_videos"), org.mockito.ArgumentMatchers.<Object[]>any()))
+            .thenReturn(List.of(Map.of(
+                "filename", "[Test-raws] Alpha - 01 [1080p][OTHERHASH].mkv",
+                "title", "[Test-raws] Alpha - 01 [1080p][OTHERHASH].mkv"
+            )));
+        expectFolderLookup();
+        expectFeed(FEED_ONE_ITEM);
+        // Nenhum advance-upload: episodio equivalente ja existe no Seek.
+
+        Map<String, Object> result = service.pollSources(Map.of());
+
+        server.verify();
+        assertThat(result.get("new")).isEqualTo(0);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> summary = ((List<Map<String, Object>>) result.get("summary")).get(0);
+        assertThat(summary.get("existing")).isEqualTo(1);
+        verify(jdbc).update(contains("insert into seen_releases"), any(), any(), any(), any());
     }
 
     @Test
