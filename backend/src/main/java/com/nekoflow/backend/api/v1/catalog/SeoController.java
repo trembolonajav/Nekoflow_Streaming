@@ -69,38 +69,40 @@ public class SeoController {
             """.formatted(publicBaseUrl);
     }
 
+    // Markdown com H1 e links (formato recomendado do llms.txt): ajuda LLMs e
+    // agentes de IA a entender e citar o site.
     @GetMapping(value = "/llms.txt", produces = MediaType.TEXT_PLAIN_VALUE)
     public String llms() {
         return """
             # Nekoflow
 
-            Nekoflow e uma plataforma de catalogo e streaming de animes.
+            Nekoflow e uma plataforma de catalogo e streaming de animes legendados em portugues (PT-BR),
+            com calendario de lancamentos da temporada sincronizado com o AniList.
 
-            URL base:
-            %s
+            ## Paginas principais
 
-            Sitemap:
-            %s/sitemap.xml
+            - [Inicio](%s/): destaques e ultimos episodios
+            - [Explorar](%s/explorar): catalogo completo com busca e filtros
+            - [Calendario](%s/calendario): lancamentos da semana com dia e horario
 
-            Paginas publicas:
-            %s/
-            %s/explorar
-            %s/calendario
-            %s/anime/{slug}
-            %s/watch/{slug}/{episode}
+            ## Estrutura de URLs
 
-            Nao indexar:
-            %s/admin
-            %s/perfil
-            %s/notificacoes
-            %s/entrar
+            - Pagina de anime: `%s/anime/{slug}`
+            - Player de episodio: `%s/watch/{slug}/{episode}`
 
-            Termos e privacidade:
-            %s/termos-de-uso
-            %s/politica-de-privacidade
+            ## Sitemaps
+
+            - [Indice de sitemaps](%s/sitemap.xml)
+            - [Animes](%s/sitemap-animes.xml)
+            - [Episodios](%s/sitemap-episodes.xml)
+            - [Videos](%s/sitemap-video.xml)
+
+            ## Politicas
+
+            - [Termos de uso](%s/termos-de-uso)
+            - [Politica de privacidade](%s/politica-de-privacidade)
+            - Nao indexar: rotas privadas `/admin`, `/perfil`, `/notificacoes`, `/entrar`
             """.formatted(
-                publicBaseUrl,
-                publicBaseUrl,
                 publicBaseUrl,
                 publicBaseUrl,
                 publicBaseUrl,

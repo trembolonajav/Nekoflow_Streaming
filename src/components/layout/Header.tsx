@@ -179,6 +179,8 @@ export function Header() {
           <img
             src={logoUrl}
             alt="Nekoflow"
+            width={512}
+            height={288}
             className="h-20 w-auto md:h-24"
             draggable={false}
           />

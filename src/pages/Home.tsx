@@ -109,6 +109,7 @@ function Home() {
                   {activeHero.coverUrl ? (
                     <Link
                       to={`/anime/${activeHero.slug}`}
+                      aria-label={`Ver detalhes de ${activeHero.title}`}
                       className="group hidden overflow-hidden rounded-xl border border-gold/20 bg-surface shadow-2xl shadow-onyx/40 transition-all duration-300 hover:border-gold/60 md:block"
                     >
                       <div className="aspect-[2/3] overflow-hidden">
@@ -237,11 +238,15 @@ function HeroIndicators({
             type="button"
             aria-label={`Ir para destaque ${index + 1}`}
             onClick={() => onSelect(index)}
-            className={cn(
-              "h-2.5 w-2.5 rotate-45 border border-gold/45 transition-colors",
-              index === activeIndex ? "bg-gold" : "bg-transparent hover:bg-gold/40",
-            )}
-          />
+            className="group/dot flex h-6 w-6 items-center justify-center"
+          >
+            <span
+              className={cn(
+                "h-2.5 w-2.5 rotate-45 border border-gold/45 transition-colors",
+                index === activeIndex ? "bg-gold" : "bg-transparent group-hover/dot:bg-gold/40",
+              )}
+            />
+          </button>
         ))}
       </div>
       <span className="font-mono text-xs uppercase tracking-[0.22em] text-ivory/80">
