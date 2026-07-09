@@ -9,11 +9,27 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Cria o database do Umami em volumes novos (deploys do zero).
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nekoflow} -d ${POSTGRES_DB:-nekoflow}"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Analytics self-hosted (fonte da verdade de trafego). Dashboard em :3001.
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-nekoflow}:${POSTGRES_PASSWORD:-nekoflow}@postgres:5432/umami
+      DATABASE_TYPE: postgresql
+      APP_SECRET: ${UMAMI_APP_SECRET:-nekoflow-umami-dev-secret-change-me}
+    ports:
+      - "${UMAMI_PORT:-3001}:3000"
+    restart: unless-stopped
 
   backend:
     build:
@@ -68,6 +84,10 @@ services:
       CHOKIDAR_USEPOLLING: "true"
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
       VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+      VITE_UMAMI_SRC: ${VITE_UMAMI_SRC:-http://localhost:3001/script.js}
+      VITE_UMAMI_WEBSITE_ID: ${VITE_UMAMI_WEBSITE_ID:-}
+      VITE_UMAMI_SHARE_URL: ${VITE_UMAMI_SHARE_URL:-}
+      VITE_GA4_ID: ${VITE_GA4_ID:-}
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
 

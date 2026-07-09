@@ -728,6 +728,27 @@ export async function deleteAdminAnime(id: string) {
   return apiRequest<{ message: string }>(`/admin/animes/${id}`, { method: "DELETE" }, true);
 }
 
+export interface AdminMetricsDto {
+  totals: {
+    users: number;
+    animes: number;
+    episodes_published: number;
+    watchlist_entries: number;
+    comments: number;
+    plays_7d: number;
+    plays_30d: number;
+  };
+  top_animes_7d: { title: string; slug: string; cover_url: string | null; plays: number; viewers: number }[];
+  top_episodes_7d: { title: string; number: number; plays: number }[];
+  most_favorited: { title: string; slug: string; favorites: number }[];
+  new_users_by_day: { day: string; total: number }[];
+  plays_by_day: { day: string; total: number }[];
+}
+
+export async function fetchAdminMetrics() {
+  return apiRequest<AdminMetricsDto>("/admin/metrics", undefined, true);
+}
+
 export async function syncCalendarWithAniList() {
   return apiRequest<{
     ok: boolean;

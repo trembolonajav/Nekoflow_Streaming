@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
+  BarChart3,
   Film,
   PlayCircle,
   LayoutGrid,
@@ -23,6 +24,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { label: "Dashboard", to: "/admin" as const, icon: LayoutDashboard, exact: true },
+  { label: "Métricas", to: "/admin/metricas" as const, icon: BarChart3 },
   { label: "Animes", to: "/admin/animes" as const, icon: Film },
   { label: "Episódios", to: "/admin/episodios" as const, icon: PlayCircle },
   { label: "Home / Curadoria", to: "/admin/home" as const, icon: LayoutGrid },

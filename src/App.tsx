@@ -27,6 +27,7 @@ const AdminComments = lazy(() => import("./pages/admin/AdminComentarios"));
 const AdminSuggestions = lazy(() => import("./pages/admin/AdminSugestoes"));
 const AdminHome = lazy(() => import("./pages/admin/AdminHome"));
 const AdminCalendario = lazy(() => import("./pages/admin/AdminCalendario"));
+const AdminMetricas = lazy(() => import("./pages/admin/AdminMetricas"));
 
 const AdminWorkerDashboard = lazy(() => import("./pages/admin/worker/AdminWorkerDashboard"));
 const AdminWorkerSync = lazy(() => import("./pages/admin/worker/AdminWorkerSync"));
@@ -62,6 +63,7 @@ const App = () => (
                 <Route index element={<AdminDashboard />} />
                 <Route path="home" element={<AdminHome />} />
                 <Route path="calendario" element={<AdminCalendario />} />
+                <Route path="metricas" element={<AdminMetricas />} />
                 <Route path="animes" element={<AdminAnimes />} />
                 <Route path="episodios" element={<AdminEpisodes />} />
                 <Route path="comentarios" element={<AdminComments />} />

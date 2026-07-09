@@ -14,6 +14,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { fetchAnimeDetail, fetchWatchPlayer, updateProgress } from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
 import { applySeo } from "@/lib/seo";
+import { trackEvent } from "@/lib/analytics";
 
 const PROGRESS_SYNC_INTERVAL_SECONDS = 15;
 
@@ -79,6 +80,12 @@ function PlayerInner({
     setCurrentSeconds(0);
     setIsLoading(true);
     lastSyncedRef.current = 0;
+    trackEvent("episode_view", {
+      anime: data.animeTitle,
+      slug: anime.slug,
+      episode: data.episodeNumber,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.episodeId]);
 
   useEffect(() => {
@@ -152,7 +159,13 @@ function PlayerInner({
                       allowFullScreen
                       referrerPolicy="strict-origin-when-cross-origin"
                       className="absolute inset-0 h-full w-full border-0"
-                      onLoad={() => setIsLoading(false)}
+                      onLoad={() => {
+                        setIsLoading(false);
+                        trackEvent("player_loaded", {
+                          anime: data.animeTitle,
+                          episode: data.episodeNumber,
+                        });
+                      }}
                     />
                   ) : null}
 
