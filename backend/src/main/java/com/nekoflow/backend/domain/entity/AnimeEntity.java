@@ -85,6 +85,11 @@ public class AnimeEntity {
     @Column(name = "published_at")
     private OffsetDateTime publishedAt;
 
+    // Curadoria do calendario: quando false, o anime some do calendario publico
+    // e a sincronizacao com o AniList deixa de criar/atualizar episodios agendados.
+    @Column(name = "show_in_calendar", nullable = false)
+    private boolean showInCalendar = true;
+
     // Texto normalizado (minusculo/sem acento) para busca no banco. Mantido pelo
     // callback abaixo em todos os caminhos de escrita (worker, admin, conversao).
     @Column(name = "search_index", columnDefinition = "text")
@@ -282,6 +287,14 @@ public class AnimeEntity {
 
     public void setPublishedAt(OffsetDateTime publishedAt) {
         this.publishedAt = publishedAt;
+    }
+
+    public boolean isShowInCalendar() {
+        return showInCalendar;
+    }
+
+    public void setShowInCalendar(boolean showInCalendar) {
+        this.showInCalendar = showInCalendar;
     }
 
     public List<EpisodeEntity> getEpisodes() {

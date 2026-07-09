@@ -5,7 +5,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Eye,
+  EyeOff,
+  Loader2,
   Plus,
+  RefreshCw,
   Save,
   Search,
   X,
@@ -22,6 +26,8 @@ import {
   createAdminEpisode,
   fetchAdminAnimes,
   fetchAdminEpisodes,
+  setAnimeCalendarVisibility,
+  syncCalendarWithAniList,
   updateAdminEpisode,
   type AdminAnimeDto,
   type AdminEpisodeDto,
@@ -50,12 +56,6 @@ function addDays(date: Date, days: number) {
 
 function toDateKey(date: Date) {
   return date.toISOString().slice(0, 10);
-}
-
-function currentSeasonLabel(date: Date) {
-  const month = date.getMonth() + 1;
-  const season = month <= 3 ? "Inverno" : month <= 6 ? "Primavera" : month <= 9 ? "Verão" : "Outono";
-  return `${season} ${date.getFullYear()}`;
 }
 
 function toTime(value: string | null) {
@@ -114,11 +114,11 @@ function planFromEpisodes(episodes: AdminEpisodeDto[]) {
   return next;
 }
 
-function latestEpisodesByAnime(episodes: AdminEpisodeDto[], animes: AdminAnimeDto[], seasonLabel: string) {
+// Animes em exibição (o rótulo de temporada é inconsistente entre worker/import,
+// então o recorte é por status — o mesmo critério do sync com o AniList).
+function latestEpisodesByAnime(episodes: AdminEpisodeDto[], animes: AdminAnimeDto[]) {
   const seasonAnimeIds = new Set(
-    animes
-      .filter((anime) => anime.seasonLabel?.trim().toLowerCase() === seasonLabel.toLowerCase())
-      .map((anime) => anime.id),
+    animes.filter((anime) => anime.status === "RELEASING").map((anime) => anime.id),
   );
   const byAnime = new Map<string, AdminEpisodeDto>();
   for (const episode of episodes) {
@@ -149,12 +149,11 @@ function AdminCalendario() {
 
   const animesQuery = useQuery({ queryKey: ["admin-animes"], queryFn: fetchAdminAnimes });
   const episodesQuery = useQuery({ queryKey: ["admin-episodes"], queryFn: fetchAdminEpisodes });
-  const currentSeason = currentSeasonLabel(weekStart);
   const episodes = useMemo(() => episodesQuery.data ?? [], [episodesQuery.data]);
   const animes = useMemo(() => animesQuery.data ?? [], [animesQuery.data]);
   const latestEpisodes = useMemo(
-    () => latestEpisodesByAnime(episodes, animes, currentSeason),
-    [animes, currentSeason, episodes],
+    () => latestEpisodesByAnime(episodes, animes),
+    [animes, episodes],
   );
   const initialPlan = useMemo(() => planFromEpisodes(latestEpisodes), [latestEpisodes]);
 
@@ -241,6 +240,40 @@ function AdminCalendario() {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const syncMutation = useMutation({
+    mutationFn: syncCalendarWithAniList,
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["admin-animes"] });
+      await invalidate();
+      toast.success(
+        `Sincronizado com o AniList: ${result.scheduled_created} novos agendados, ${result.scheduled_updated} reagendados` +
+          (result.finished > 0 ? `, ${result.finished} finalizados` : ""),
+      );
+    },
+    onError: (error: Error) => toast.error("Falha ao sincronizar: " + error.message),
+  });
+
+  const visibilityMutation = useMutation({
+    mutationFn: async ({ animeId, show }: { animeId: string; show: boolean }) =>
+      setAnimeCalendarVisibility(animeId, show),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["admin-animes"] });
+      await invalidate();
+      toast.success(result.show_in_calendar ? "Anime de volta ao calendário." : "Anime ocultado do calendário.");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  // Curadoria: animes em exibição, com o estado do toggle do calendário.
+  const seasonAnimes = useMemo(
+    () =>
+      animes
+        .filter((anime) => anime.status === "RELEASING")
+        .sort((a, b) => a.titleDisplay.localeCompare(b.titleDisplay)),
+    [animes],
+  );
+  const hiddenCount = useMemo(() => seasonAnimes.filter((anime) => !anime.showInCalendar).length, [seasonAnimes]);
+
   const toggleEpisode = (episode: AdminEpisodeDto) => {
     setPlan((current) => {
       if (current[episode.id]?.dateKey === activeDateKey) {
@@ -280,6 +313,16 @@ function AdminCalendario() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            title="Busca no AniList a data/hora do próximo episódio de cada anime do catálogo em exibição"
+            className="h-11 gap-2 border-border-subtle bg-transparent px-5 text-sm text-ivory hover:bg-surface-elevated"
+          >
+            {syncMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            Sincronizar AniList
+          </Button>
           <Button
             variant="outline"
             onClick={() => setDialogOpen(true)}
@@ -375,6 +418,43 @@ function AdminCalendario() {
               </button>
             );
           })}
+        </div>
+      </AdminCard>
+
+      <AdminCard className="p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-serif text-xl text-ivory">Curadoria do calendário</h2>
+            <p className="mt-1 text-sm text-ivory-muted">
+              O sync do AniList só agenda animes visíveis. Oculte o que não quiser no calendário — ele não volta
+              sozinho.
+              {hiddenCount > 0 ? ` (${hiddenCount} oculto${hiddenCount > 1 ? "s" : ""})` : ""}
+            </p>
+          </div>
+        </div>
+        <div className="mt-3 flex max-h-40 flex-wrap gap-2 overflow-y-auto">
+          {seasonAnimes.length === 0 ? (
+            <p className="text-sm text-ivory-muted">Nenhum anime em exibição no catálogo.</p>
+          ) : (
+            seasonAnimes.map((anime) => (
+              <button
+                key={anime.id}
+                type="button"
+                disabled={visibilityMutation.isPending}
+                onClick={() => visibilityMutation.mutate({ animeId: anime.id, show: !anime.showInCalendar })}
+                title={anime.showInCalendar ? "Ocultar do calendário" : "Mostrar no calendário"}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors",
+                  anime.showInCalendar
+                    ? "border-gold/30 bg-gold/5 text-ivory hover:border-gold/60"
+                    : "border-border-subtle bg-surface-elevated/30 text-ivory-muted line-through opacity-60 hover:opacity-90",
+                )}
+              >
+                {anime.showInCalendar ? <Eye className="size-3.5 text-gold" /> : <EyeOff className="size-3.5" />}
+                <span className="max-w-56 truncate">{anime.titleDisplay}</span>
+              </button>
+            ))
+          )}
         </div>
       </AdminCard>
 

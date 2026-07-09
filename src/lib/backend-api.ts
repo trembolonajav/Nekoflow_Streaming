@@ -30,6 +30,7 @@ export interface AdminAnimeDto {
   genres: string[];
   episodesCount: number;
   updatedAt: string | null;
+  showInCalendar: boolean;
 }
 
 export interface AdminEpisodeDto {
@@ -725,6 +726,24 @@ export async function updateAdminAnimeVisibility(id: string, visibility: string)
 
 export async function deleteAdminAnime(id: string) {
   return apiRequest<{ message: string }>(`/admin/animes/${id}`, { method: "DELETE" }, true);
+}
+
+export async function syncCalendarWithAniList() {
+  return apiRequest<{
+    ok: boolean;
+    animes: number;
+    scheduled_created: number;
+    scheduled_updated: number;
+    finished: number;
+    without_schedule: number;
+  }>("/admin/calendar/sync", { method: "POST" }, true);
+}
+
+export async function setAnimeCalendarVisibility(animeId: string, show: boolean) {
+  return apiRequest<{ ok: boolean; show_in_calendar: boolean }>(`/admin/calendar/anime/${animeId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ show_in_calendar: show }),
+  }, true);
 }
 
 export async function fetchAdminEpisodes() {

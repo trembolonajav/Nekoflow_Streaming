@@ -16,6 +16,8 @@ backend/target
 .env.*
 !.env.example
 *.sql
+# Migracoes do Flyway precisam ir pro repo (senao o deploy quebra sem a coluna nova).
+!backend/src/main/resources/db/migration/*.sql
 *.dump
 *.backup
 *.bak

@@ -21,6 +21,7 @@ public record AdminAnimeResponse(
     String studio,
     List<String> genres,
     Integer episodesCount,
-    String updatedAt
+    String updatedAt,
+    Boolean showInCalendar
 ) {
 }

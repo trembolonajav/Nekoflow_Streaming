@@ -74,3 +74,10 @@ app:
       interval-ms: ${APP_WORKER_RSS_POLL_INTERVAL_MS:1800000}
       initial-delay-ms: ${APP_WORKER_RSS_POLL_INITIAL_DELAY_MS:60000}
       lease-seconds: ${APP_WORKER_RSS_POLL_LEASE_SECONDS:600}
+    calendar-sync:
+      # Sincroniza o calendario com o AniList (so animes do catalogo). Ligado por
+      # padrao: e idempotente e barato (2-3 chamadas GraphQL a cada 6h).
+      enabled: ${APP_WORKER_CALENDAR_SYNC_ENABLED:true}
+      interval-ms: ${APP_WORKER_CALENDAR_SYNC_INTERVAL_MS:21600000}
+      initial-delay-ms: ${APP_WORKER_CALENDAR_SYNC_INITIAL_DELAY_MS:120000}
+      lease-seconds: ${APP_WORKER_CALENDAR_SYNC_LEASE_SECONDS:300}

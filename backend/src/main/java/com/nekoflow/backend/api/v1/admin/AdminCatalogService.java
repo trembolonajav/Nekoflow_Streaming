@@ -312,7 +312,8 @@ public class AdminCatalogService {
             anime.getStudio(),
             anime.getGenres(),
             anime.getEpisodes() != null ? anime.getEpisodes().size() : 0,
-            anime.getPublishedAt() != null ? anime.getPublishedAt().toString() : null
+            anime.getPublishedAt() != null ? anime.getPublishedAt().toString() : null,
+            anime.isShowInCalendar()
         );
     }
 

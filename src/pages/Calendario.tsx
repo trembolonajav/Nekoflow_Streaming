@@ -281,8 +281,8 @@ function ReleaseCard({ release }: { release: CalendarReleaseDto }) {
       className="group/release flex flex-col overflow-hidden rounded-2xl border border-border-subtle bg-surface/60 transition-all duration-300 hover:border-gold/40 hover:shadow-[0_14px_40px_-18px_var(--gold-glow)]"
     >
       <div className="relative aspect-video w-full overflow-hidden">
-        {release.thumbnail ? (
-          <img src={release.thumbnail} alt="" loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover/release:scale-[1.04]" />
+        {release.thumbnail || release.poster ? (
+          <img src={release.thumbnail ?? release.poster ?? undefined} alt="" loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover/release:scale-[1.04]" />
         ) : null}
         <div className="absolute inset-0 bg-gradient-to-t from-onyx/95 via-onyx/30 to-transparent" />
 

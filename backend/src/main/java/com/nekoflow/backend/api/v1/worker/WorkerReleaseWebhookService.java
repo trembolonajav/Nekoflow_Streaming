@@ -9,7 +9,6 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import java.net.URLEncoder;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -245,7 +244,9 @@ public class WorkerReleaseWebhookService {
             if (isBlank(episode.getThumbnailUrl()) && !isBlank(thumbnail)) {
                 episode.setThumbnailUrl(thumbnail);
             }
-            if (episode.getStatus() == null) {
+            // Placeholder agendado pelo sync do calendario: o episodio real chegou,
+            // promove para PUBLISHED (senao ficaria SCHEDULED para sempre com video).
+            if (episode.getStatus() == null || episode.getStatus() == EpisodeStatus.SCHEDULED) {
                 episode.setStatus(EpisodeStatus.PUBLISHED);
             }
             if (episode.getPublishedAt() == null && episode.getStatus() == EpisodeStatus.PUBLISHED) {
@@ -449,9 +450,11 @@ public class WorkerReleaseWebhookService {
 
     private String translateToPortuguese(String text) {
         try {
-            String encoded = URLEncoder.encode(text, StandardCharsets.UTF_8);
-            String url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=pt&dt=t&q=" + encoded;
-            JsonNode response = restTemplate.getForObject(url, JsonNode.class);
+            // O texto vai como variavel de URI: o RestTemplate codifica sozinho.
+            // Pre-codificar com URLEncoder causava dupla codificacao e o tradutor
+            // recebia "%2C"/"%3F" como texto literal, sujando as sinopses.
+            String url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=pt&dt=t&q={q}";
+            JsonNode response = restTemplate.getForObject(url, JsonNode.class, text);
             JsonNode sentences = response == null ? null : response.path(0);
             if (sentences == null || !sentences.isArray()) {
                 return text;

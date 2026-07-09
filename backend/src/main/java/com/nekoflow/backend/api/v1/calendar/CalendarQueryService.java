@@ -39,7 +39,7 @@ public class CalendarQueryService {
         List<EpisodeEntity> episodes = episodeRepository.findAllByStatusInOrderByScheduledForAscPublishedAtAscNumberAsc(
             List.of(EpisodeStatus.PUBLISHED, EpisodeStatus.SCHEDULED)
         ).stream()
-            .filter(episode -> isSeasonAnime(episode, monday))
+            .filter(episode -> episode.getAnime() != null && episode.getAnime().isShowInCalendar())
             .filter(this::isLatestEpisodeForAnime)
             .filter(episode -> {
                 OffsetDateTime airDate = releaseDate(episode);
@@ -116,14 +116,6 @@ public class CalendarQueryService {
             .orElse(episode.getNumber());
 
         return java.util.Objects.equals(episode.getNumber(), latestNumber);
-    }
-
-    private boolean isSeasonAnime(EpisodeEntity episode, LocalDate referenceDate) {
-        if (episode.getAnime() == null || episode.getAnime().getSeasonLabel() == null) {
-            return false;
-        }
-        String expected = seasonName(referenceDate) + " " + referenceDate.getYear();
-        return expected.equalsIgnoreCase(episode.getAnime().getSeasonLabel().trim());
     }
 
     private String seasonName(LocalDate date) {
