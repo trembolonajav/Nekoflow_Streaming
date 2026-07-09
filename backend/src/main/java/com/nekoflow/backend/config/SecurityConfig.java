@@ -40,7 +40,11 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/suggestions").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/worker/webhooks/releases").permitAll()
                 .requestMatchers(HttpMethod.GET, "/robots.txt", "/llms.txt", "/sitemap.xml", "/sitemap-*.xml").permitAll()
+                // Crawlers (Googlebot) tambem fazem HEAD nesses recursos; liberar so o
+                // GET devolvia 401 e o Search Console falhava ao buscar o sitemap.
+                .requestMatchers(HttpMethod.HEAD, "/robots.txt", "/llms.txt", "/sitemap.xml", "/sitemap-*.xml").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/seo/**").permitAll()
+                .requestMatchers(HttpMethod.HEAD, "/api/v1/seo/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/home", "/api/v1/animes/**", "/api/v1/watch/**", "/api/v1/calendar", "/api/v1/episodes/*/comments").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/episodes/*/comments", "/api/v1/comments/*/replies").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").authenticated()
